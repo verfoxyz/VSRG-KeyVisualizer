@@ -1,0 +1,277 @@
+import { Button, LineEdit, SpinBox } from "std-widgets.slint";
+
+// 定义结构体（放在组件外部，使所有组件都能访问）
+export struct KeyData {
+    name: string,
+    display_name: string,
+    is_pressed: bool,
+    x: length,
+    y: length,
+    w: length,
+    h: length,
+    pressed_color: color,
+    color_hex: string,
+}
+
+export component SettingsWindow inherits Window {
+    min-width: 600px;
+    min-height: 450px;
+    title: "KeyTick config";
+    background: #252525;
+    always-on-top: true;
+
+    // --- 核心：必须先定义，Rust 才能传值，循环才能找到 ---
+    in property <[KeyData]> root_preview_keys;
+    in-out property <int> selected_index: -1;
+    // 用于显示的代理属性（由 Rust 更新或通过回调修改）
+    in-out property <int> current_x;
+    in-out property <int> current_y;
+    in-out property <int> current_w;
+    in-out property <int> current_h;
+    in-out property <string> current_color;
+
+    // 用于捕获模式时强制释放焦点的透明区域
+    in-out property <bool> capturing_mode: false;
+
+    // 回调通知 Rust
+    callback update_key_config(int, int, int, int, int, string);
+    callback add_new_key();
+    callback save_config_clicked();
+    callback close_clicked();
+
+    VerticalLayout {
+        padding: 20px;
+        spacing: 15px;
+
+        // --- 1. 位置预览区域 ---
+        Text {
+            text: "Location Preview (Click to select button)";
+            color: #aaa;
+        }
+
+        Rectangle {
+            min-height: 150px;
+            background: #1a1a1a;
+            border-radius: 4px;
+            clip: true;
+
+            // 使用 root. 前缀访问定义的属性
+            for key[i] in root.root_preview_keys: Rectangle {
+                x: key.x;
+                y: key.y;
+                width: key.w;
+                height: key.h;
+
+                background: root.selected_index == i ? #4A90E2 : #444;
+                border-width: 2px;
+                border-color: root.selected_index == i ? white : transparent;
+
+                Text {
+                    text: key.display_name;
+                    color: white;
+                }
+
+                TouchArea {
+                    clicked => {
+                        root.selected_index = i;
+                        // 选中时自动同步数值到输入框
+                        root.current_x = key.x / 1px;
+                        root.current_y = key.y / 1px;
+                        root.current_w = key.w / 1px;
+                        root.current_h = key.h / 1px;
+                        root.current_color = key.color_hex;
+                    }
+                }
+            }
+
+            // 添加按钮
+            Button {
+                text: "+ Add Key";
+                x: parent.width - 110px;
+                y: parent.height - 40px;
+                clicked => {
+                    root.add_new_key();
+                }
+            }
+        }
+
+        // --- 2. 配置编辑区域 ---
+        Text {
+            text: "Parameter Config";
+            color: #aaa;
+        }
+
+        GridLayout {
+            spacing: 10px;
+            Row {
+                Text {
+                    text: "Location X:";
+                    vertical-alignment: center;
+                }
+
+                current_x_input := SpinBox {
+                    value: root.current_x;
+                    enabled: root.selected_index != -1;
+                }
+
+                Text {
+                    text: "Location Y:";
+                    vertical-alignment: center;
+                }
+
+                current_y_input := SpinBox {
+                    value: root.current_y;
+                    enabled: root.selected_index != -1;
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Width W:";
+                    vertical-alignment: center;
+                }
+
+                current_w_input := SpinBox {
+                    value: root.current_w;
+                    enabled: root.selected_index != -1;
+                }
+
+                Text {
+                    text: "Height H:";
+                    vertical-alignment: center;
+                }
+
+                current_h_input := SpinBox {
+                    value: root.current_h;
+                    enabled: root.selected_index != -1;
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Pressed Color:";
+                    vertical-alignment: center;
+                }
+
+                current_col_input := LineEdit {
+                    text: root.current_color;
+                    enabled: root.selected_index != -1;
+                }
+            }
+        }
+
+        Button {
+            text: "Save Config";
+            primary: true;
+            clicked => {
+                root.save_config();
+            }
+        }
+    }
+
+    // 捕获模式时显示全屏透明区域，强制释放其他控件的焦点
+    TouchArea {
+        visible: root.capturing_mode;
+        width: parent.width;
+        height: parent.height;
+        x: 0;
+        y: 0;
+        // 接收焦点并阻止事件传递
+        //focus: true;
+        enabled: root.capturing_mode;
+    }
+
+    function save_config() {
+        root.update_key_config(
+            root.selected_index,
+            current_x_input.value,
+            current_y_input.value,
+            current_w_input.value,
+            current_h_input.value,
+            current_col_input.text);
+        root.save_config_clicked();
+    }
+}
+
+// KeyCaptureDialog.slint
+export component KeyCaptureDialog inherits Window {
+    // --- 窗口属性 ---
+    no-frame: true;           
+    background: #2b2b2b;      
+    width: 300px;
+    height: 150px;
+    always-on-top: true;
+    //forward-focus: touch_area;
+    
+    // --- 定义回调：传递 rdev_name 和 display_name ---
+    callback key-recorded(string, string);
+    in-out property <string> detected-key: "Please press the key you wish to bind...";
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 10px;
+        Text {
+            text: root.detected-key;
+            font-size: 16px;
+            color: white;
+            horizontal-alignment: center;
+        }
+        Text {
+            text: "(Press ESC to cancel)";
+            font-size: 12px;
+            color: #aaaaaa;
+            horizontal-alignment: center;
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    // 窗口大小现在最好也从 config 加载，或者设大一点
+    width: Math.min(1200px, 20px + root.keys.length * 90px);
+    height: 100px;
+    background: transparent;
+    no-frame: true;
+    always-on-top: true;
+
+    in property <[KeyData]> keys;
+    callback request_close();
+    callback gui_drag_window();
+    callback request_settings();
+
+    // 双击检测变量
+    property <duration> last_click_time;
+
+    TouchArea {
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.request_close();
+            }
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                if (animation-tick() - root.last_click_time < 300ms) {
+                    root.request_settings();
+                } else {
+                    root.gui_drag_window();
+                }
+                root.last_click_time = animation-tick();
+            }
+        }
+    }
+
+    // 放弃 Layout，使用容器手动定位
+    for key_info in root.keys: Rectangle {
+        // 关键：绑定坐标和尺寸
+        x: key_info.x;
+        y: key_info.y;
+        width: key_info.w;
+        height: key_info.h;
+
+        background: key_info.is_pressed ? key_info.pressed_color : rgba(30, 30, 30, 0.8);
+        border-radius: 8px;
+
+        Text {
+            text: key_info.display_name;
+            color: white;
+            font-size: key_info.h * 0.3; // 字体大小随高度自适应
+        }
+    }
+}

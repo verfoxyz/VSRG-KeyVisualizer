@@ -1,0 +1,47 @@
+{
+  "debug": false,
+  "keys": [
+    {
+      "rdev_key_name": "KeyA",
+      "display_name": "A",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "rdev_key_name": "KeyS",
+      "display_name": "S",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "rdev_key_name": "KeyD",
+      "display_name": "D",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "rdev_key_name": "Space",
+      "display_name": "Space",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "rdev_key_name": "KeyK",
+      "display_name": "K",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "rdev_key_name": "KeyL",
+      "display_name": "L",
+      "x": 0.0,
+      "y": 0.0
+    },
+    {
+      "rdev_key_name": "SemiColon",
+      "display_name": ";",
+      "x": 0.0,
+      "y": 0.0
+    }
+  ]
+}

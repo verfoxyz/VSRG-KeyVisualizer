@@ -1,0 +1,31 @@
+{
+  "keys": [
+    {
+      "rdev_key_name": "KeyA",
+      "display_name": "A",
+      "x": 10.0,
+      "y": 10.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "KeyS",
+      "display_name": "S",
+      "x": 100.0,
+      "y": 10.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "KeyD",
+      "display_name": "D",
+      "x": 190.0,
+      "y": 10.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#4A90E2"
+    }
+  ]
+}
