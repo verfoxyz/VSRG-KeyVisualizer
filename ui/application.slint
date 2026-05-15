@@ -196,7 +196,8 @@ export component SettingsWindow inherits Window {
 // KeyCaptureDialog.slint
 export component KeyCaptureDialog inherits Window {
     // --- 窗口属性 ---
-    no-frame: true;           
+    no-frame: true;
+    //title: "Key Capture";  
     background: #2b2b2b;      
     width: 300px;
     height: 150px;
@@ -226,6 +227,7 @@ export component KeyCaptureDialog inherits Window {
 }
 
 export component MainWindow inherits Window {
+    title: "KeyTick";
     // 窗口大小现在最好也从 config 加载，或者设大一点
     width: Math.min(1200px, 20px + root.keys.length * 90px);
     height: 100px;

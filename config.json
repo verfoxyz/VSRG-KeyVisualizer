@@ -26,6 +26,33 @@
       "width": 80.0,
       "height": 80.0,
       "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "KeyL",
+      "display_name": "L",
+      "x": 280.0,
+      "y": 10.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "SemiColon",
+      "display_name": ";",
+      "x": 370.0,
+      "y": 10.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "Quote",
+      "display_name": "'",
+      "x": 460.0,
+      "y": 10.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#4A90E2"
     }
   ]
 }
