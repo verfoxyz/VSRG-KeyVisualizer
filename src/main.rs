@@ -2,6 +2,7 @@ use i_slint_backend_winit::WinitWindowAccessor;
 use rdev::{Event, EventType, Key, listen};
 use serde::{Deserialize, Serialize};
 use slint::{ComponentHandle, Model, ModelRc, SharedString, VecModel};
+use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -12,10 +13,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetWindowLongW,
     SetWindowLongW,
     GWL_EXSTYLE,
+    WS_DISABLED,
     WS_EX_NOACTIVATE,
+    WS_EX_TRANSPARENT,
+    WS_EX_LAYERED,
 };
 use std::ffi::c_void;
-use std::io::{self, Write};
 slint::include_modules!();
 
 // 移除 BackendEvent 包装，直接使用 rdev::Event
@@ -103,9 +106,7 @@ fn render_key_models(config: &AppConfig) -> slint::ModelRc<KeyData> {
 }
 
 fn make_window_no_activate(window: &winit::window::Window) {
-    println!("Attempting to set no-activate style...");
     use windows::Win32::Foundation::HWND;
-    //use windows::Win32::UI::WindowsAndMessaging::{WS_EX_TOOLWINDOW};
 
     let hwnd = match window.window_handle().unwrap().as_raw() {
         RawWindowHandle::Win32(handle) => HWND(handle.hwnd.get() as *mut c_void),
@@ -114,18 +115,17 @@ fn make_window_no_activate(window: &winit::window::Window) {
 
     unsafe {
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        // 只保留不激活和工具栏样式（不在任务栏显示）
-        // 移除 WS_EX_TRANSPARENT，因为它会干扰事件流
+        // 添加不激活和透明穿透样式
         SetWindowLongW(
             hwnd,
             GWL_EXSTYLE,
-            ex_style,
-            //ex_style | WS_EX_NOACTIVATE.0 as i32,
+            ex_style 
+            | WS_EX_NOACTIVATE.0 as i32 
+            | WS_EX_TRANSPARENT.0 as i32 
+            | WS_EX_LAYERED.0 as i32 
+            | WS_DISABLED.0 as i32,
         );
-        println!("Final Window Style: {:X}", ex_style);
-        //io::stdout().flush().unwrap(); // 确保内容即时输出
     }
-    
 }
 
 fn main() {
@@ -144,12 +144,19 @@ fn main() {
     // 定义设置窗口句柄，用于更新预览列表
     let settings_holder = Arc::new(Mutex::new(None));
 
-    println!("TEST1");
-    
+    // 初始化按键名称到索引的映射（用于快速查找）
+    let key_map: Arc<HashMap<String, usize>> = {
+        let config_inner = config.lock().unwrap();
+        let mut map = HashMap::new();
+        for (idx, k) in config_inner.keys.iter().enumerate() {
+            map.insert(k.rdev_key_name.clone(), idx);
+        }
+        Arc::new(map)
+    };
+
     // 初始化 UI 模型
     let model = render_key_models(&config.lock().unwrap());
     ui.set_keys(model.clone());
-    println!("TEST2");
     // --- 窗口基础设置 ---
     ui.window().with_winit_window(|window| {
         window.set_transparent(true);
@@ -279,36 +286,30 @@ fn main() {
 
     // 2. 启动监听线程
     start_listener(tx);
-    //println!("Hook listener disabled for testing");
+
     // 3. UI 线程的事件分发器 (每 10ms 检查一次消息，使用非阻塞锁)
     let ui_weak = ui.as_weak();
     let config_clone = config.clone();
     let capture_mode_clone = capture_mode.clone();
     let dialog_holder_clone = dialog_holder.clone();
     let settings_holder_clone = settings_holder.clone();
+    let key_map_clone = key_map.clone();
 
     let event_timer = slint::Timer::default();
     event_timer.start(
         slint::TimerMode::Repeated,
         std::time::Duration::from_millis(10),
         move || {
-            match config_clone.try_lock() {
-                Ok(mut config_inner) => {
-                    while let Ok(event) = rx.try_recv() {
-                        handle_backend_input(
-                            event.event_type,
-                            &ui_weak,
-                            &capture_mode_clone,
-                            &mut config_inner,
-                            &dialog_holder_clone,
-                            &settings_holder_clone,
-                        );
-                    }
-                }
-                Err(_) => {
-                    // 如果在聚焦期间频繁打印这个，说明 UI 线程阻塞了锁，导致后端事件无法消费
-                    eprintln!("Lock congestion detected!");
-                }
+            // 不锁定 config，只处理事件
+            while let Ok(event) = rx.try_recv() {
+                handle_backend_input(
+                    event.event_type,
+                    &ui_weak,
+                    &capture_mode_clone,
+                    &dialog_holder_clone,
+                    &settings_holder_clone,
+                    &key_map_clone,
+                );
             }
         },
     );
@@ -319,17 +320,15 @@ fn main() {
 //=========================监听按键事件=========================
 
 /// 统一的按键监听函数（生产者）
-/// 只负责捕获并发送事件，不处理任何 UI 逻辑
+/// 专门开一个线程给 rdev，不做任何其他杂事
 fn start_listener(tx: crossbeam_channel::Sender<rdev::Event>) {
     thread::spawn(move || {
-        // 关键点：在 Windows 下，提升监听线程的优先级至关重要
-        // 如果此线程调度慢了，整个系统的键盘都会卡顿
+        // 在 Windows 上，rdev 内部会启动消息循环
         if let Err(e) = listen(move |event| {
-            // 严禁在此处 println! 或做任何复杂逻辑
-            //let _ = tx.send(event);
+            // 使用 try_send。如果 UI 真的卡死了，宁愿丢包也不要卡住系统键盘
             let _ = tx.try_send(event);
         }) {
-            eprintln!("监听失败: {:?}", e);
+            eprintln!("Hook Error: {:?}", e);
         }
     });
 }
@@ -338,7 +337,6 @@ fn start_listener(tx: crossbeam_channel::Sender<rdev::Event>) {
 fn process_key_capture(
     k: rdev::Key,
     ui_weak: &slint::Weak<MainWindow>,
-    config: &mut AppConfig,
     dialog_handle: &Arc<Mutex<Option<slint::Weak<KeyCaptureDialog>>>>,
     settings_handle: &Arc<Mutex<Option<slint::Weak<SettingsWindow>>>>,
 ) {
@@ -365,20 +363,27 @@ fn process_key_capture(
 
     // 4. 更新配置和主界面
     let display_name = rdev_name.replace("Key", "").to_uppercase();
-    let max_x = config.keys.iter().map(|k| k.x).fold(0.0, f32::max);
+
+    // 创建新按键配置
     let new_key = KeyConfig {
         rdev_key_name: rdev_name.into(),
         display_name: display_name.into(),
-        x: max_x + 90.0,
+        x: 10.0,
         y: 10.0,
         width: 80.0,
         height: 80.0,
         color_pressed: "#4A90E2".into(),
     };
-    config.keys.push(new_key);
-    let model = render_key_models(config);
 
+    // 更新配置
+    let config = Arc::new(Mutex::new(load_config()));
+    let mut config_inner = config.lock().unwrap();
+    config_inner.keys.push(new_key);
+    save_config(&config_inner);
+
+    // 更新 UI（重新渲染整个模型）
     if let Some(ui) = ui_weak.upgrade() {
+        let model = render_key_models(&config_inner);
         ui.set_keys(model.clone());
 
         // 同时更新设置窗口的预览列表
@@ -390,21 +395,22 @@ fn process_key_capture(
     }
 }
 
-/// 更新按键视觉状态
-fn update_key_visual_state(ui_weak: &slint::Weak<MainWindow>, k: rdev::Key, is_press: bool) {
+/// 更新按键视觉状态（使用 HashMap 快速查找）
+fn update_key_visual_state(
+    ui_weak: &slint::Weak<MainWindow>,
+    k: rdev::Key,
+    is_press: bool,
+    key_map: &HashMap<String, usize>,
+) {
     let target_key_str = format!("{:?}", k);
 
-    if let Some(ui) = ui_weak.upgrade() {
-        let model = ui.get_keys();
-
-        // 查找并更新匹配的按键状态
-        for index in 0..model.row_count() {
+    // 通过 HashMap 直接获取索引，O(1) 查找
+    if let Some(&index) = key_map.get(&target_key_str) {
+        if let Some(ui) = ui_weak.upgrade() {
+            let model = ui.get_keys();
             if let Some(mut data) = model.row_data(index) {
-                if data.name == target_key_str {
-                    data.is_pressed = is_press;
-                    model.set_row_data(index, data);
-                    break;
-                }
+                data.is_pressed = is_press;
+                model.set_row_data(index, data);
             }
         }
     }
@@ -416,28 +422,32 @@ fn handle_backend_input(
     event_type: rdev::EventType,
     ui_weak: &slint::Weak<MainWindow>,
     capture_mode: &Arc<Mutex<bool>>,
-    config: &mut AppConfig,
     dialog_handle: &Arc<Mutex<Option<slint::Weak<KeyCaptureDialog>>>>,
     settings_handle: &Arc<Mutex<Option<slint::Weak<SettingsWindow>>>>,
+    key_map: &HashMap<String, usize>,
 ) {
     // 使用 try_lock 避免阻塞
     if let Ok(mut is_capturing) = capture_mode.try_lock() {
         match event_type {
             rdev::EventType::KeyPress(k) => {
                 if *is_capturing {
-                    println!("capture_mode lock acquired");
                     // 捕获模式下的逻辑 (UI 线程安全)
                     *is_capturing = false;
-                    process_key_capture(k, ui_weak, config, dialog_handle, settings_handle);
+                    process_key_capture(
+                        k,
+                        ui_weak,
+                        dialog_handle,
+                        settings_handle,
+                    );
                 } else {
-                    println!("capture_mode try_lock failed!");
-                    // 正常变色逻辑
-                    update_key_visual_state(ui_weak, k, true);
+                    println!("{:?}\r", k); 
+                    // 正常变色逻辑（使用 HashMap 快速查找）
+                    update_key_visual_state(ui_weak, k, true, key_map);
                 }
             }
             rdev::EventType::KeyRelease(k) => {
                 if !*is_capturing {
-                    update_key_visual_state(ui_weak, k, false);
+                    update_key_visual_state(ui_weak, k, false, key_map);
                 }
             }
             _ => {}
