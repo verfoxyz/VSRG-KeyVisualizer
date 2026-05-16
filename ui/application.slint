@@ -1,6 +1,5 @@
 import { Button, LineEdit, SpinBox } from "std-widgets.slint";
 
-// 定义结构体（放在组件外部，使所有组件都能访问）
 export struct KeyData {
     name: string,
     display_name: string,
@@ -11,22 +10,16 @@ export struct KeyData {
     h: length,
     pressed_color: color,
     color_hex: string,
+    selected: bool, // ✨ 新增：标记在配置界面中是否被多选
 }
 
 export component SettingsWindow inherits Window {
     min-width: 600px;
-    min-height: 520px; // 微调高度以稳妥容纳所有配置元素
+    min-height: 450px;
     title: "KeyTick config";
     background: #252525;
     always-on-top: true;
 
-    // 新增：全局步进属性（由 Rust 注入，UI 内部读写）
-    in-out property <int> global_grid_size: 4;
-
-    // 新增：当步进被修改时通知 Rust 的回调
-    callback grid_size_edited(int);
-
-    // --- 核心属性声明 ---
     in property <[KeyData]> root_preview_keys;
     in-out property <int> selected_index: -1;
 
@@ -35,30 +28,38 @@ export component SettingsWindow inherits Window {
     in-out property <int> current_w;
     in-out property <int> current_h;
     in-out property <string> current_color;
-
     in-out property <bool> capturing_mode: false;
+    in-out property <int> global_grid_size: 4;
+    in-out property <int> global_top_boundary: 0;
+    // ✨ 新增全局边框属性的暴露（用于在右侧或顶部面板设置）
+    in-out property <int> global_border_width: 1;
+    in-out property <color> global_border_color: #555555;
 
-    // --- 回调通知 Rust ---
     callback update_key_config(int, int, int, int, int, string);
+    // ✨ 新增回调：当用户在配置窗口修改了边框值时通知后端
+    callback global_border_edited(int, string);
     callback add_new_key();
-    callback delete_key(int); // 👈 新增：删除按键的回调
     callback save_config_clicked();
     callback close_clicked();
+    callback delete_key(int);            
+    callback grid_size_edited(int);       
+    callback top_boundary_edited(int);
+    // ✨ 新增：通知后端某个索引的按键被点击了，并传入是否按下了 Ctrl 键以支持多选
+    callback key_clicked_in_settings(int, bool);
 
     VerticalLayout {
-        padding: 20px;
+        padding: 15px;
         spacing: 15px;
-
         Text {
             text: "Location Preview (Drag to move, Click to select)";
             color: #aaa;
         }
-// ✨ 支持动态可变边界的预览框容器
+
         preview_box := Rectangle {
             min-height: 180px;
-            min-width: 560px; // 允许横向被拉得更宽
+            min-width: 560px; 
             background: #1a1a1a;
-            border-radius: 4px;
+            //border-radius: 4px;
             clip: true;
 
             for key[i] in root.root_preview_keys: Rectangle {
@@ -68,8 +69,9 @@ export component SettingsWindow inherits Window {
                 height: key.h;
 
                 background: root.selected_index == i ? #4A90E2 : #444;
-                border-width: 2px;
-                border-color: root.selected_index == i ? white : transparent;
+                // ✨ 修改：基础边框宽度由全局属性控制，如果是选中状态则加粗提示
+                border-width: key.selected ? (root.global_border_width + 1) * 1px : root.global_border_width * 1px;
+                border-color: key.selected ? #00FFCC : root.global_border_color;
 
                 Text {
                     text: key.display_name;
@@ -77,12 +79,14 @@ export component SettingsWindow inherits Window {
                 }
 
                 TouchArea {
-                    // 用于缓存刚点击下去时鼠标在按钮内部的相对初始偏移
                     property <length> offset_x;
                     property <length> offset_y;
 
                     pointer-event(event) => {
                         if (event.kind == PointerEventKind.down) {
+                            // ✨ 触发多选回调，将当前索引和是否按住 Ctrl 传给后端
+                            root.key_clicked_in_settings(i, event.modifiers.control);
+                            
                             root.selected_index = i;
                             root.current_x = key.x / 1px;
                             root.current_y = key.y / 1px;
@@ -99,9 +103,7 @@ export component SettingsWindow inherits Window {
                         if (self.pressed) {
                             let target_x = (key.x / 1px) + (self.mouse-x - self.offset_x) / 1px;
                             let target_y = (key.y / 1px) + (self.mouse-y - self.offset_y) / 1px;
-        
-                            // 使用动态的全局步进属性进行四舍五入吸附
-                            let g_size = Math.max(1, root.global_grid_size); // 避免除以 0
+                            let g_size = Math.max(1, root.global_grid_size);
                             let snapped_x = Math.round(target_x / g_size) * g_size;
                             let snapped_y = Math.round(target_y / g_size) * g_size;
 
@@ -110,7 +112,6 @@ export component SettingsWindow inherits Window {
 
                             root.current_x = Math.max(0, Math.min(snapped_x, Math.max(0, max_x)));
                             root.current_y = Math.max(0, Math.min(snapped_y, Math.max(0, max_y)));
-
                             root.sync_inputs_to_memory();
                         }
                     }
@@ -121,9 +122,7 @@ export component SettingsWindow inherits Window {
                 text: "+ Add Key";
                 x: parent.width - 110px;
                 y: parent.height - 40px;
-                clicked => {
-                    root.add_new_key();
-                }
+                clicked => { root.add_new_key(); }
             }
         }
 
@@ -132,127 +131,92 @@ export component SettingsWindow inherits Window {
             color: #aaa;
         }
 
-        // 参数编辑网格表单
         GridLayout {
             spacing: 10px;
             Row {
-                Text {
-                    text: "Location X:";
-                    vertical-alignment: center;
-                }
-
+                Text { text: "Location X:"; vertical-alignment: center; color: white; }
                 current_x_input := SpinBox {
                     value: root.current_x;
-                    step-size: root.global_grid_size; // 完美同步：点击加减箭头也跟随全局步进
                     enabled: root.selected_index != -1;
-                    edited => {
-                        root.current_x = self.value;
-                        root.sync_inputs_to_memory();
-                    }
+                    edited => { root.current_x = self.value; root.sync_inputs_to_memory(); }
                 }
-
-                Text {
-                    text: "Location Y:";
-                    vertical-alignment: center;
-                }
-
+                Text { text: "Location Y:"; vertical-alignment: center; color: white; }
                 current_y_input := SpinBox {
                     value: root.current_y;
-                    step-size: root.global_grid_size; // 完美同步：点击加减箭头也跟随全局步进
                     enabled: root.selected_index != -1;
-                    edited => {
-                        root.current_y = self.value;
-                        root.sync_inputs_to_memory();
-                    }
+                    edited => { root.current_y = self.value; root.sync_inputs_to_memory(); }
                 }
             }
 
             Row {
-                Text {
-                    text: "Width W:";
-                    vertical-alignment: center;
-                }
-
+                Text { text: "Width W:"; vertical-alignment: center; color: white; }
                 current_w_input := SpinBox {
                     value: root.current_w;
                     enabled: root.selected_index != -1;
-                    edited => {
-                        root.current_w = self.value;
-                        root.sync_inputs_to_memory();
-                    }
+                    edited => { root.current_w = self.value; root.sync_inputs_to_memory(); }
                 }
-                Text {
-                    text: "Height H:";
-                    vertical-alignment: center;
-                }
-
+                Text { text: "Height H:"; vertical-alignment: center; color: white; }
                 current_h_input := SpinBox {
                     value: root.current_h;
                     enabled: root.selected_index != -1;
+                    edited => { root.current_h = self.value; root.sync_inputs_to_memory(); }
+                }
+            }
+
+            Row {
+                Text { text: "Pressed Color:"; vertical-alignment: center; color: white; }
+                current_col_input := LineEdit {
+                    text: root.current_color;
+                    enabled: root.selected_index != -1;
+                    edited => { root.current_color = self.text; root.sync_inputs_to_memory(); }
+                }
+            }
+
+            Row {
+                Text { text: "Top Disappear Boundary (px):"; vertical-alignment: center; color: #fff; }
+                SpinBox {
+                    value: root.global_top_boundary;
+                    minimum: 0; 
+                    maximum: 800;
+                    step-size: 10;
                     edited => {
-                        root.current_h = self.value;
-                        root.sync_inputs_to_memory();
+                        root.global_top_boundary = self.value;
+                        root.top_boundary_edited(self.value);
                     }
                 }
             }
 
             Row {
-                Text {
-                    text: "Pressed Color:";
-                    vertical-alignment: center;
-                }
-
-                current_col_input := LineEdit {
-                    text: root.current_color;
-                    enabled: root.selected_index != -1;
-                    edited => {
-                        root.current_color = self.text;
-                        root.sync_inputs_to_memory();
-                    }
-                }
-                Text {
-                    text: "Global Grid Snapping (px):";
-                    vertical-alignment: center;
-                    color: #fff;
-                }
-
+                Text { text: "Global Grid Snapping (px):"; vertical-alignment: center; color: #fff; }
                 SpinBox {
                     value: root.global_grid_size;
-                    step-size: 1; // 步进输入框本身每次可以 +1 或 -1
-                    // min: 1;       // 限制最小为 1px 吸附（即自由移动）
-                    // max: 50;      // 限制最大吸附大小
+                    minimum: 1;
+                    maximum: 50;
+                    step-size: 1;
                     edited => {
                         root.global_grid_size = self.value;
-                        // 触发回调实时把新步长告诉 Rust 内存
                         root.grid_size_edited(self.value);
-                        // 联动更新一下当前选中件的吸附位置
                         root.sync_inputs_to_memory();
                     }
                 }
             }
         }
 
-        // 底部动作按钮布局
         HorizontalLayout {
             spacing: 15px;
-
-            // 删除按钮
             Button {
                 text: "Delete Selected Key";
                 enabled: root.selected_index != -1;
                 clicked => {
                     root.delete_key(root.selected_index);
-                    root.selected_index = -1; // 移除后清除选中高亮
+                    root.selected_index = -1;
                 }
             }
 
-            // 保存文件按钮
             Button {
                 text: "Save Config";
                 primary: true;
-                clicked => {
-                    root.save_config();
-                }
+                clicked => { root.save_config(); }
             }
         }
     }
@@ -266,7 +230,6 @@ export component SettingsWindow inherits Window {
         enabled: root.capturing_mode;
     }
 
-    // 辅助状态实时提交函数
     function sync_inputs_to_memory() {
         root.update_key_config(
             root.selected_index,
@@ -283,21 +246,15 @@ export component SettingsWindow inherits Window {
     }
 }
 
-// KeyCaptureDialog.slint
 export component KeyCaptureDialog inherits Window {
-    // --- 窗口属性 ---
     no-frame: true;
     title: "Key Capture";
     background: #2b2b2b;
     width: 300px;
     height: 150px;
     always-on-top: true;
-    //forward-focus: touch_area;
-    
-    // --- 定义回调：传递 rdev_name 和 display_name ---
     callback key-recorded(string, string);
     in-out property <string> detected-key: "Please press the key you wish to bind...";
-
     VerticalLayout {
         alignment: center;
         spacing: 10px;
@@ -319,52 +276,86 @@ export component KeyCaptureDialog inherits Window {
 
 export component MainWindow inherits Window {
     title: "KeyTick";
-    // 窗口大小现在最好也从 config 加载，或者设大一点
     width: Math.min(1200px, 20px + root.keys.length * 90px);
-    height: 100px;
+    
+    // 核心机制：让窗口总高度根据配置的顶部边界动态可变
+    // 基础高度 200px + 边界高度值，长条飞得越远，透明窗口越高
+    height: 200px + root.top_boundary_px * 1px;
     background: transparent;
     no-frame: true;
     always-on-top: true;
 
     in property <[KeyData]> keys;
+    in property <[KeyData]> bar_notes;
+    // 注入 Rust 侧的边界配置
+    in property <int> top_boundary_px: 300;
+    // ✨ 新增：主窗口接收全局边框配置
+    in property <int> global_border_width: 1;
+    in property <color> global_border_color: #555555; 
+
     callback request_close();
     callback gui_drag_window();
     callback request_settings();
-
-    // 双击检测变量
     property <duration> last_click_time;
 
-    TouchArea {
-        pointer-event(event) => {
-            if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                root.request_close();
-            }
-            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
-                if (animation-tick() - root.last_click_time < 300ms) {
-                    root.request_settings();
-                } else {
-                    root.gui_drag_window();
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        clip: true; 
+        background: transparent;
+        
+        TouchArea {
+            width: 100%;
+            height: 100%;
+            pointer-event(event) => {
+                if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                    root.request_close();
                 }
-                root.last_click_time = animation-tick();
+                if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                    if (animation-tick() - root.last_click_time < 300ms) {
+                        root.request_settings();
+                    } else {
+                        root.gui_drag_window();
+                    }
+                    root.last_click_time = animation-tick();
+                }
             }
         }
-    }
 
-    // 放弃 Layout，使用容器手动定位
-    for key_info in root.keys: Rectangle {
-        // 关键：绑定坐标和尺寸
-        x: key_info.x;
-        y: key_info.y;
-        width: key_info.w;
-        height: key_info.h;
-
-        background: key_info.is_pressed ? key_info.pressed_color : rgba(30, 30, 30, 0.8);
-        border-radius: 8px;
-
-        Text {
-            text: key_info.display_name;
-            color: white;
-            font-size: key_info.h * 0.3; // 字体大小随高度自适应
+        // 循环绘制瀑布流长条动画
+        for bar in root.bar_notes: Rectangle {
+            x: bar.x;
+            
+            // ✨ 核心映射公式：
+            // 因为 Slint 坐标系 0 在最顶部，而我们的物理 Y 轴 0 在底部。
+            // parent.height - bar.y 会定位到长条的【底部边界】（即按键顶部）。
+            // 再减去 bar.h (当前长条的高度)，就能精准让长条往上生长和飞升，彻底消除延迟感！
+            y: parent.height - bar.y - bar.h;
+            
+            width: bar.w;
+            height: bar.h;
+            background: bar.pressed_color;
+            //border-radius: 2px; // 让音符长条两端带点轻微圆角，视觉效果极佳
         }
-    }
+
+        // 🟢 手动的物理按键绘制（固定在最底部）
+        for key_info in root.keys: Rectangle {
+            x: key_info.x;
+            y: parent.height - key_info.h - key_info.y;
+            width: key_info.w;
+            height: key_info.h;
+            background: key_info.is_pressed ? key_info.pressed_color : #33333330;
+            // ✨ 实现方式：利用每个按键的位置 + 全局边框属性进行无缝渲染
+            border-width: root.global_border_width * 1px;
+            border-color: root.global_border_color;
+            border-radius: 4px;
+            Text {
+                text: key_info.display_name;
+                color: white;
+                font-size: 18px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+        }
+    } 
 }

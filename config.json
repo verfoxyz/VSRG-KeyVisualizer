@@ -1,55 +1,15 @@
 {
-  "grid_size": 5,
+  "grid_size": 4,
+  "top_boundary": 0,
+  "window_x": -1,
+  "window_y": -1,
+  "global_border_width": 1,
+  "global_border_color": "#555555",
   "keys": [
     {
       "rdev_key_name": "KeyA",
       "display_name": "A",
       "x": 10.0,
-      "y": 10.0,
-      "width": 80.0,
-      "height": 80.0,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "KeyS",
-      "display_name": "S",
-      "x": 100.0,
-      "y": 10.0,
-      "width": 80.0,
-      "height": 80.0,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "KeyD",
-      "display_name": "D",
-      "x": 190.0,
-      "y": 10.0,
-      "width": 80.0,
-      "height": 80.0,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "KeyL",
-      "display_name": "L",
-      "x": 280.0,
-      "y": 10.0,
-      "width": 80.0,
-      "height": 80.0,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "SemiColon",
-      "display_name": ";",
-      "x": 370.0,
-      "y": 10.0,
-      "width": 80.0,
-      "height": 80.0,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "Quote",
-      "display_name": "'",
-      "x": 460.0,
       "y": 10.0,
       "width": 80.0,
       "height": 80.0,
