@@ -15,27 +15,33 @@ export struct KeyData {
 
 export component SettingsWindow inherits Window {
     min-width: 600px;
-    min-height: 450px;
+    min-height: 520px; // 微调高度以稳妥容纳所有配置元素
     title: "KeyTick config";
     background: #252525;
     always-on-top: true;
 
-    // --- 核心：必须先定义，Rust 才能传值，循环才能找到 ---
+    // 新增：全局步进属性（由 Rust 注入，UI 内部读写）
+    in-out property <int> global_grid_size: 4;
+
+    // 新增：当步进被修改时通知 Rust 的回调
+    callback grid_size_edited(int);
+
+    // --- 核心属性声明 ---
     in property <[KeyData]> root_preview_keys;
     in-out property <int> selected_index: -1;
-    // 用于显示的代理属性（由 Rust 更新或通过回调修改）
+
     in-out property <int> current_x;
     in-out property <int> current_y;
     in-out property <int> current_w;
     in-out property <int> current_h;
     in-out property <string> current_color;
 
-    // 用于捕获模式时强制释放焦点的透明区域
     in-out property <bool> capturing_mode: false;
 
-    // 回调通知 Rust
+    // --- 回调通知 Rust ---
     callback update_key_config(int, int, int, int, int, string);
     callback add_new_key();
+    callback delete_key(int); // 👈 新增：删除按键的回调
     callback save_config_clicked();
     callback close_clicked();
 
@@ -43,19 +49,18 @@ export component SettingsWindow inherits Window {
         padding: 20px;
         spacing: 15px;
 
-        // --- 1. 位置预览区域 ---
         Text {
-            text: "Location Preview (Click to select button)";
+            text: "Location Preview (Drag to move, Click to select)";
             color: #aaa;
         }
-
-        Rectangle {
-            min-height: 150px;
+// ✨ 支持动态可变边界的预览框容器
+        preview_box := Rectangle {
+            min-height: 180px;
+            min-width: 560px; // 允许横向被拉得更宽
             background: #1a1a1a;
             border-radius: 4px;
             clip: true;
 
-            // 使用 root. 前缀访问定义的属性
             for key[i] in root.root_preview_keys: Rectangle {
                 x: key.x;
                 y: key.y;
@@ -72,19 +77,46 @@ export component SettingsWindow inherits Window {
                 }
 
                 TouchArea {
-                    clicked => {
-                        root.selected_index = i;
-                        // 选中时自动同步数值到输入框
-                        root.current_x = key.x / 1px;
-                        root.current_y = key.y / 1px;
-                        root.current_w = key.w / 1px;
-                        root.current_h = key.h / 1px;
-                        root.current_color = key.color_hex;
+                    // 用于缓存刚点击下去时鼠标在按钮内部的相对初始偏移
+                    property <length> offset_x;
+                    property <length> offset_y;
+
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            root.selected_index = i;
+                            root.current_x = key.x / 1px;
+                            root.current_y = key.y / 1px;
+                            root.current_w = key.w / 1px;
+                            root.current_h = key.h / 1px;
+                            root.current_color = key.color_hex;
+
+                            self.offset_x = self.pressed-x;
+                            self.offset_y = self.pressed-y;
+                        }
+                    }
+
+                    moved => {
+                        if (self.pressed) {
+                            let target_x = (key.x / 1px) + (self.mouse-x - self.offset_x) / 1px;
+                            let target_y = (key.y / 1px) + (self.mouse-y - self.offset_y) / 1px;
+        
+                            // 使用动态的全局步进属性进行四舍五入吸附
+                            let g_size = Math.max(1, root.global_grid_size); // 避免除以 0
+                            let snapped_x = Math.round(target_x / g_size) * g_size;
+                            let snapped_y = Math.round(target_y / g_size) * g_size;
+
+                            let max_x = (preview_box.width - key.w) / 1px;
+                            let max_y = (preview_box.height - key.h) / 1px;
+
+                            root.current_x = Math.max(0, Math.min(snapped_x, Math.max(0, max_x)));
+                            root.current_y = Math.max(0, Math.min(snapped_y, Math.max(0, max_y)));
+
+                            root.sync_inputs_to_memory();
+                        }
                     }
                 }
             }
 
-            // 添加按钮
             Button {
                 text: "+ Add Key";
                 x: parent.width - 110px;
@@ -95,12 +127,12 @@ export component SettingsWindow inherits Window {
             }
         }
 
-        // --- 2. 配置编辑区域 ---
         Text {
             text: "Parameter Config";
             color: #aaa;
         }
 
+        // 参数编辑网格表单
         GridLayout {
             spacing: 10px;
             Row {
@@ -111,7 +143,12 @@ export component SettingsWindow inherits Window {
 
                 current_x_input := SpinBox {
                     value: root.current_x;
+                    step-size: root.global_grid_size; // 完美同步：点击加减箭头也跟随全局步进
                     enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_x = self.value;
+                        root.sync_inputs_to_memory();
+                    }
                 }
 
                 Text {
@@ -121,7 +158,12 @@ export component SettingsWindow inherits Window {
 
                 current_y_input := SpinBox {
                     value: root.current_y;
+                    step-size: root.global_grid_size; // 完美同步：点击加减箭头也跟随全局步进
                     enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_y = self.value;
+                        root.sync_inputs_to_memory();
+                    }
                 }
             }
 
@@ -134,8 +176,11 @@ export component SettingsWindow inherits Window {
                 current_w_input := SpinBox {
                     value: root.current_w;
                     enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_w = self.value;
+                        root.sync_inputs_to_memory();
+                    }
                 }
-
                 Text {
                     text: "Height H:";
                     vertical-alignment: center;
@@ -144,6 +189,10 @@ export component SettingsWindow inherits Window {
                 current_h_input := SpinBox {
                     value: root.current_h;
                     enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_h = self.value;
+                        root.sync_inputs_to_memory();
+                    }
                 }
             }
 
@@ -156,39 +205,80 @@ export component SettingsWindow inherits Window {
                 current_col_input := LineEdit {
                     text: root.current_color;
                     enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_color = self.text;
+                        root.sync_inputs_to_memory();
+                    }
+                }
+                Text {
+                    text: "Global Grid Snapping (px):";
+                    vertical-alignment: center;
+                    color: #fff;
+                }
+
+                SpinBox {
+                    value: root.global_grid_size;
+                    step-size: 1; // 步进输入框本身每次可以 +1 或 -1
+                    // min: 1;       // 限制最小为 1px 吸附（即自由移动）
+                    // max: 50;      // 限制最大吸附大小
+                    edited => {
+                        root.global_grid_size = self.value;
+                        // 触发回调实时把新步长告诉 Rust 内存
+                        root.grid_size_edited(self.value);
+                        // 联动更新一下当前选中件的吸附位置
+                        root.sync_inputs_to_memory();
+                    }
                 }
             }
         }
 
-        Button {
-            text: "Save Config";
-            primary: true;
-            clicked => {
-                root.save_config();
+        // 底部动作按钮布局
+        HorizontalLayout {
+            spacing: 15px;
+
+            // 删除按钮
+            Button {
+                text: "Delete Selected Key";
+                enabled: root.selected_index != -1;
+                clicked => {
+                    root.delete_key(root.selected_index);
+                    root.selected_index = -1; // 移除后清除选中高亮
+                }
+            }
+
+            // 保存文件按钮
+            Button {
+                text: "Save Config";
+                primary: true;
+                clicked => {
+                    root.save_config();
+                }
             }
         }
     }
 
-    // 捕获模式时显示全屏透明区域，强制释放其他控件的焦点
     TouchArea {
         visible: root.capturing_mode;
         width: parent.width;
         height: parent.height;
         x: 0;
         y: 0;
-        // 接收焦点并阻止事件传递
-        //focus: true;
         enabled: root.capturing_mode;
     }
 
-    function save_config() {
+    // 辅助状态实时提交函数
+    function sync_inputs_to_memory() {
         root.update_key_config(
             root.selected_index,
-            current_x_input.value,
-            current_y_input.value,
-            current_w_input.value,
-            current_h_input.value,
-            current_col_input.text);
+            root.current_x,
+            root.current_y,
+            root.current_w,
+            root.current_h,
+            root.current_color);
+    }
+
+    function save_config() {
+        root.sync_inputs_to_memory();
         root.save_config_clicked();
     }
 }
@@ -197,8 +287,8 @@ export component SettingsWindow inherits Window {
 export component KeyCaptureDialog inherits Window {
     // --- 窗口属性 ---
     no-frame: true;
-    //title: "Key Capture";  
-    background: #2b2b2b;      
+    title: "Key Capture";
+    background: #2b2b2b;
     width: 300px;
     height: 150px;
     always-on-top: true;
@@ -217,6 +307,7 @@ export component KeyCaptureDialog inherits Window {
             color: white;
             horizontal-alignment: center;
         }
+
         Text {
             text: "(Press ESC to cancel)";
             font-size: 12px;

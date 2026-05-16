@@ -1,3 +1,4 @@
+use crossbeam_channel as channel;
 use i_slint_backend_winit::WinitWindowAccessor;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::{Deserialize, Serialize};
@@ -8,7 +9,6 @@ use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use crossbeam_channel as channel;
 
 slint::include_modules!();
 
@@ -20,9 +20,17 @@ enum MyKeyEvent {
 }
 
 // 吸附步长定义
-const GRID_SIZE: i32 = 10;
-fn apply_snapping(value: i32) -> i32 {
-    ((value as f32 / GRID_SIZE as f32).round() as i32) * GRID_SIZE
+// 辅助函数：提供反序列化默认值
+fn default_grid_size() -> i32 {
+    4
+}
+
+// 吸附步长函数（动态接收 grid_size 参数）
+fn apply_snapping(value: i32, grid_size: i32) -> i32 {
+    if grid_size <= 0 {
+        return value;
+    } // 防御性编程
+    ((value as f32 / grid_size as f32).round() as i32) * grid_size
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -38,12 +46,16 @@ struct KeyConfig {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct AppConfig {
+    // 全局步进属性，默认值为 4
+    #[serde(default = "default_grid_size")]
+    grid_size: i32,
     keys: Vec<KeyConfig>,
 }
 
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            grid_size: default_grid_size(),
             keys: vec![KeyConfig {
                 rdev_key_name: "KeyA".into(),
                 display_name: "A".into(),
@@ -104,8 +116,8 @@ fn make_window_no_activate(window: &winit::window::Window) {
     {
         use windows::Win32::Foundation::HWND;
         use windows::Win32::UI::WindowsAndMessaging::{
-            GetWindowLongW, SetWindowLongW, GWL_EXSTYLE, WS_EX_LAYERED,
-            WS_EX_NOACTIVATE, WS_EX_TRANSPARENT,
+            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+            WS_EX_TRANSPARENT,
         };
 
         let hwnd = match window.window_handle().unwrap().as_raw() {
@@ -172,7 +184,9 @@ fn main() {
 
     ui.on_request_settings(move || {
         let settings = SettingsWindow::new().unwrap();
-
+        // 启动设置窗口时，从内存锁中读取 grid_size 并注入 UI
+        let current_grid_size = config_for_settings.lock().unwrap().grid_size;
+        settings.set_global_grid_size(current_grid_size);
         if let Some(main_ui) = ui_weak_for_settings.clone().upgrade() {
             settings.set_root_preview_keys(main_ui.get_keys());
         }
@@ -182,13 +196,18 @@ fn main() {
         let settings_weak = settings.as_weak();
         let config_for_update = config_for_settings.clone();
         let ui_weak_for_update = ui_weak_for_settings.clone();
-        
         settings.on_update_key_config(move |index, x, y, w, h, color| {
-            let idx = index as usize;
-            let snapped_x = apply_snapping(x);
-            let snapped_y = apply_snapping(y);
+            let idx = index as usize; // 转换 i32 为 usize 以便索引
 
+            // 获取当前的步长
             let mut config_inner = config_for_update.lock().unwrap();
+            let g_size = config_inner.grid_size;
+
+            // 应用动态的全局步长
+            let snapped_x = apply_snapping(x, g_size);
+            let snapped_y = apply_snapping(y, g_size);
+
+            // 1. 更新内存中的 config (注意类型转换)
             if idx < config_inner.keys.len() {
                 config_inner.keys[idx].x = snapped_x as f32;
                 config_inner.keys[idx].y = snapped_y as f32;
@@ -214,15 +233,75 @@ fn main() {
             }
         });
 
+        // 👈 新增：处理配置窗口发送的"删除按键"请求
+        let config_for_delete = config_for_settings.clone();
+        let ui_weak_for_delete = ui_weak_for_settings.clone();
+        let settings_weak_for_delete = settings.as_weak();
+
+        settings.on_delete_key(move |index| {
+            let idx = index as usize;
+            let mut config_inner = config_for_delete.lock().unwrap();
+
+            if idx < config_inner.keys.len() {
+                // 1. 从全局内存向量中移除数据
+                config_inner.keys.remove(idx);
+                println!("🗑️ 内存中的第 {} 号按键已被移除，点击保存后生效。", idx);
+
+                // 2. 实时渲染全新的 Model 结构体
+                let new_model = render_key_models(&config_inner);
+
+                // 3. 刷新 MainWindow（大键盘皮肤层）
+                if let Some(main_ui) = ui_weak_for_delete.upgrade() {
+                    main_ui.set_keys(new_model.clone());
+                }
+
+                // 4. 刷新当前 SettingsWindow 的预览方块层
+                if let Some(s) = settings_weak_for_delete.upgrade() {
+                    s.set_root_preview_keys(new_model);
+                }
+            }
+        });
+        // 保存配置回调（只保存，不关闭窗口）
         let config_for_save = config_for_settings.clone();
+        let settings_weak_for_save = settings.as_weak();
         settings.on_save_config_clicked(move || {
-            save_config(&config_for_save.lock().unwrap());
+            if let Some(s) = settings_weak_for_save.upgrade() {
+                let idx = s.get_selected_index() as usize;
+                let mut config_inner = config_for_save.lock().unwrap();
+                let g_size = config_inner.grid_size;
+
+                if idx != -1 as isize as usize && idx < config_inner.keys.len() {
+                    config_inner.keys[idx].x = apply_snapping(s.get_current_x(), g_size) as f32;
+                    config_inner.keys[idx].y = apply_snapping(s.get_current_y(), g_size) as f32;
+                    config_inner.keys[idx].width = s.get_current_w() as f32;
+                    config_inner.keys[idx].height = s.get_current_h() as f32;
+                    config_inner.keys[idx].color_pressed = s.get_current_color().to_string();
+                }
+
+                // 统一持久化（AppConfig 结构体会自动带上最新的 grid_size 字段）
+                save_config(&config_inner);
+                println!(
+                    "🎉 全局配置与全新步长 [{}] 已成功保存到 config.json！",
+                    g_size
+                );
+            }
+        });
+
+        // 新增：当用户在 UI 调整步进数字时，同步到 Rust 内存
+        let config_for_grid = config_for_settings.clone();
+        settings.on_grid_size_edited(move |new_size| {
+            let mut config_inner = config_for_grid.lock().unwrap();
+            config_inner.grid_size = new_size;
+            println!(
+                "⚙️ 全局步进已更改为: {} 像素（点击保存后写入文件）",
+                new_size
+            );
         });
 
         let capture_mode_for_add_key = capture_mode_for_settings.clone();
         let dialog_holder_clone = dialog_holder_for_settings.clone();
         let settings_weak_for_add_key = settings.as_weak();
-        
+
         settings.on_add_new_key(move || {
             let mut mode = capture_mode_for_add_key.lock().unwrap();
             *mode = true;
@@ -250,7 +329,7 @@ fn main() {
 
         settings.show().unwrap();
     });
-    
+
     ui.on_request_close(|| slint::quit_event_loop().unwrap());
 
     // 2. 启动监听器 (根据平台不同，内部实现完全不同)
@@ -262,6 +341,7 @@ fn main() {
     let dialog_holder_clone = dialog_holder.clone();
     let settings_holder_clone = settings_holder.clone();
     let key_map_clone = key_map.clone();
+    let config_for_timer = config.clone();
 
     let event_timer = slint::Timer::default();
     event_timer.start(
@@ -276,6 +356,7 @@ fn main() {
                     &dialog_holder_clone,
                     &settings_holder_clone,
                     &key_map_clone,
+                    &config_for_timer,
                 );
             }
         },
@@ -293,13 +374,14 @@ fn handle_backend_input(
     dialog_handle: &Arc<Mutex<Option<slint::Weak<KeyCaptureDialog>>>>,
     settings_handle: &Arc<Mutex<Option<slint::Weak<SettingsWindow>>>>,
     key_map: &HashMap<String, usize>,
+    config: &Arc<Mutex<AppConfig>>,
 ) {
     if let Ok(mut is_capturing) = capture_mode.try_lock() {
         match event {
             MyKeyEvent::Press { rdev_name } => {
                 if *is_capturing {
                     *is_capturing = false;
-                    process_key_capture(rdev_name, ui_weak, dialog_handle, settings_handle);
+                    process_key_capture(rdev_name, ui_weak, dialog_handle, settings_handle, config);
                 } else {
                     update_key_visual_state(ui_weak, &rdev_name, true, key_map);
                 }
@@ -318,6 +400,7 @@ fn process_key_capture(
     ui_weak: &slint::Weak<MainWindow>,
     dialog_handle: &Arc<Mutex<Option<slint::Weak<KeyCaptureDialog>>>>,
     settings_handle: &Arc<Mutex<Option<slint::Weak<SettingsWindow>>>>,
+    config: &Arc<Mutex<AppConfig>>,
 ) {
     if let Some(weak_dialog) = dialog_handle.lock().unwrap().take() {
         if let Some(dialog) = weak_dialog.upgrade() {
@@ -347,13 +430,14 @@ fn process_key_capture(
         color_pressed: "#4A90E2".into(),
     };
 
-    let config = Arc::new(Mutex::new(load_config()));
-    let mut config_inner = config.lock().unwrap();
-    config_inner.keys.push(new_key);
-    save_config(&config_inner);
+    // 核心修改：不再通过 load_config/save_config 读写磁盘，直接加到全局内存锁中！
+    let model = {
+        let mut config_inner = config.lock().unwrap();
+        config_inner.keys.push(new_key);
+        render_key_models(&config_inner) // 实时根据最新内存渲染 model
+    };
 
     if let Some(ui) = ui_weak.upgrade() {
-        let model = render_key_models(&config_inner);
         ui.set_keys(model.clone());
 
         if let Some(weak_settings) = settings_handle.lock().unwrap().as_ref() {
@@ -361,6 +445,7 @@ fn process_key_capture(
                 settings.set_root_preview_keys(model);
             }
         }
+        println!("🆕 新按键已暂存至内存，点击\"Save Config\"后才会写入磁盘。");
     }
 }
 
@@ -389,8 +474,12 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
     thread::spawn(move || {
         if let Err(e) = rdev::listen(move |event| {
             let my_event = match event.event_type {
-                rdev::EventType::KeyPress(k) => Some(MyKeyEvent::Press { rdev_name: format!("{:?}", k) }),
-                rdev::EventType::KeyRelease(k) => Some(MyKeyEvent::Release { rdev_name: format!("{:?}", k) }),
+                rdev::EventType::KeyPress(k) => Some(MyKeyEvent::Press {
+                    rdev_name: format!("{:?}", k),
+                }),
+                rdev::EventType::KeyRelease(k) => Some(MyKeyEvent::Release {
+                    rdev_name: format!("{:?}", k),
+                }),
                 _ => None,
             };
             if let Some(ev) = my_event {
@@ -410,8 +499,12 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
     thread::spawn(move || {
         if let Err(e) = rdev::listen(move |event| {
             let my_event = match event.event_type {
-                rdev::EventType::KeyPress(k) => Some(MyKeyEvent::Press { rdev_name: format!("{:?}", k) }),
-                rdev::EventType::KeyRelease(k) => Some(MyKeyEvent::Release { rdev_name: format!("{:?}", k) }),
+                rdev::EventType::KeyPress(k) => Some(MyKeyEvent::Press {
+                    rdev_name: format!("{:?}", k),
+                }),
+                rdev::EventType::KeyRelease(k) => Some(MyKeyEvent::Release {
+                    rdev_name: format!("{:?}", k),
+                }),
                 _ => None,
             };
             if let Some(ev) = my_event {
@@ -428,16 +521,16 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
 fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindow) {
     use std::mem::{size_of, zeroed};
     use std::ptr::null_mut;
-    use windows::core::w;
-    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM, HINSTANCE};
+    use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Input::{
-        GetRawInputData, RegisterRawInputDevices, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE,
-        RAWINPUTHEADER, RID_INPUT, RIM_TYPEKEYBOARD, RIDEV_INPUTSINK,
+        GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
+        RIDEV_INPUTSINK, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, GetMessageW, RegisterClassExW, TranslateMessage,
-        DispatchMessageW, WM_INPUT, WNDCLASSEXW, HWND_MESSAGE, CS_HREDRAW, CS_VREDRAW,
+        CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
+        HWND_MESSAGE, RegisterClassExW, TranslateMessage, WM_INPUT, WNDCLASSEXW,
     };
+    use windows::core::w;
 
     thread::spawn(move || {
         unsafe {
@@ -524,18 +617,22 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
                 class_name,
                 w!("RawInputSink"),
                 Default::default(),
-                0, 0, 0, 0,
+                0,
+                0,
+                0,
+                0,
                 Some(HWND_MESSAGE), // 修复：从 HWND 变为 Option<HWND>
                 None,
                 Some(HINSTANCE(null_mut())), // 修复：从 HINSTANCE 变为 Option<HINSTANCE>
                 None,
-            ).expect("Windows 纯消息窗口创建失败！");
+            )
+            .expect("Windows 纯消息窗口创建失败！");
 
             // 5. 将 Raw Input 注册到这个独立的后台窗口上
             let mut devices: [RAWINPUTDEVICE; 1] = zeroed();
             devices[0].usUsagePage = 1;
             devices[0].usUsage = 6; // 键盘
-            devices[0].dwFlags = RIDEV_INPUTSINK; 
+            devices[0].dwFlags = RIDEV_INPUTSINK;
             devices[0].hwndTarget = hwnd_msg_sink; // 这里的包装通过 CreateWindowExW 隐式解出，无需修改
 
             if RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32).is_err() {
@@ -547,7 +644,8 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
 
             // 6. 独立线程标准的 Windows 消息泵
             let mut msg = std::mem::zeroed();
-            while GetMessageW(&mut msg, None, 0, 0).as_bool() { // 修复：此处 HWND 过滤改传入 None 监听线程全消息
+            while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+                // 修复：此处 HWND 过滤改传入 None 监听线程全消息
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
@@ -562,7 +660,7 @@ fn win_vkey_to_rdev_string(vkey: u16) -> String {
     match vkey {
         0x41..=0x5A => format!("Key{}", (vkey as u8 as char)), // A-Z
         0x30..=0x39 => format!("Key{}", (vkey as u8 as char)), // 0-9 (建议按上文的优化改)
-        
+
         // --- 控制键 ---
         0x1B => "Escape".into(),
         0x20 => "Space".into(),
@@ -573,24 +671,24 @@ fn win_vkey_to_rdev_string(vkey: u16) -> String {
         0x26 => "UpArrow".into(),
         0x27 => "RightArrow".into(),
         0x28 => "DownArrow".into(),
-        
+
         // --- 符号键 (美式键盘标准) ---
-        0xBA => "SemiColon".into(),   // ; :
-        0xDE => "Quote".into(),       // ' "
-        0xBB => "Equal".into(),       // = +
-        0xBD => "Minus".into(),       // - _
-        0xDC => "BackSlash".into(),   // \ |
-        0xDB => "LeftBracket".into(), // [ {
-        0xDD => "RightBracket".into(),// ] }
-        0xC0 => "BackQuote".into(),   // ` ~
-        0xBF => "Slash".into(),       // / ?
-        
+        0xBA => "SemiColon".into(),    // ; :
+        0xDE => "Quote".into(),        // ' "
+        0xBB => "Equal".into(),        // = +
+        0xBD => "Minus".into(),        // - _
+        0xDC => "BackSlash".into(),    // \ |
+        0xDB => "LeftBracket".into(),  // [ {
+        0xDD => "RightBracket".into(), // ] }
+        0xC0 => "BackQuote".into(),    // ` ~
+        0xBF => "Slash".into(),        // / ?
+
         // --- 小键盘符号 ---
-        0x6A => "KpMultiply".into(),  // *
-        0x6B => "KpAdd".into(),       // +
-        0x6D => "KpSubtract".into(),  // -
-        0x6F => "KpDivide".into(),    // /
-        
-        _ => format!("Unknown(0x{:X})", vkey), 
+        0x6A => "KpMultiply".into(), // *
+        0x6B => "KpAdd".into(),      // +
+        0x6D => "KpSubtract".into(), // -
+        0x6F => "KpDivide".into(),   // /
+
+        _ => format!("Unknown(0x{:X})", vkey),
     }
 }
