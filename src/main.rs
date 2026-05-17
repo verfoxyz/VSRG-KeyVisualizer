@@ -1,15 +1,26 @@
+mod state;
+mod gui {
+    pub mod settings_window;
+}
+mod events;
+mod ri_table;
+// ====================模块定义====================
 use crossbeam_channel as channel;
 use i_slint_backend_winit::WinitWindowAccessor;
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use serde::{Deserialize, Serialize};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
-use std::collections::HashMap;
+//use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::thread;
+use tracing;
+//use tracing_subscriber::fmt; // 或者 use tracing_subscriber;
+use crate::ri_table::win_vkey_to_rdev_str;
+use state::AppState;
 
 slint::include_modules!();
 
@@ -55,8 +66,12 @@ struct KeyConfig {
     color_pressed: String,
 }
 
-fn default_border_width() -> i32 { 1 }
-fn default_border_color() -> String { "#555555".into() }
+fn default_border_width() -> i32 {
+    1
+}
+fn default_border_color() -> String {
+    "#555555".into()
+}
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct AppConfig {
     #[serde(default = "default_grid_size")]
@@ -141,6 +156,10 @@ fn render_bar_models(notes: &[BarNote]) -> ModelRc<KeyData> {
 }
 
 fn render_key_models(config: &AppConfig) -> slint::ModelRc<KeyData> {
+    tracing::debug!(
+        "[DEBUG] render_key_models: 开始渲染，按键数量: {}",
+        config.keys.len()
+    );
     let key_models: Vec<KeyData> = config
         .keys
         .iter()
@@ -165,430 +184,99 @@ fn render_key_models(config: &AppConfig) -> slint::ModelRc<KeyData> {
     slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(key_models)))
 }
 
+#[cfg(windows)]
 fn make_window_no_activate(window: &winit::window::Window) {
-    #[cfg(windows)]
-    {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WS_EX_NOACTIVATE,
-        };
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WS_EX_NOACTIVATE,
+    };
 
-        let hwnd = match window.window_handle().unwrap().as_raw() {
-            RawWindowHandle::Win32(handle) => HWND(handle.hwnd.get() as *mut c_void),
-            _ => return,
-        };
+    let hwnd = match window.window_handle().unwrap().as_raw() {
+        RawWindowHandle::Win32(handle) => HWND(handle.hwnd.get() as *mut c_void),
+        _ => return,
+    };
 
-        unsafe {
-            let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-            SetWindowLongW(
-                hwnd,
-                GWL_EXSTYLE,
-                ex_style | WS_EX_NOACTIVATE.0 as i32,
-            );
-        }
+    unsafe {
+        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
+        // 结合 backup 里的透明穿透属性，保证 overlay 悬浮窗表现正常，同时避免 DWM 绘制死锁
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOACTIVATE.0 as i32);
     }
 }
 
+/// ====================主函数====================
 fn main() {
-    let (tx, rx) = channel::unbounded::<MyKeyEvent>();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::INFO)
+        .init();
+    tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
-    let init_config = load_config();
-    let mut current_top_boundary = init_config.top_boundary;
-    let config = Arc::new(Mutex::new(init_config));
-    let temp_config = Arc::new(Mutex::new(AppConfig::default()));
+    let (tx, rx) = channel::unbounded::<MyKeyEvent>();
+    let state = AppState::new(load_config());
 
     let ui = MainWindow::new().unwrap();
-    
-    let init_config_for_ui = config.lock().unwrap();
-    ui.set_global_border_width(init_config_for_ui.global_border_width);
-    ui.set_global_border_color(hex_str_to_color(&init_config_for_ui.global_border_color));
-    ui.set_top_boundary_px(current_top_boundary);
 
-    let active_notes: Arc<Mutex<Vec<BarNote>>> = Arc::new(Mutex::new(Vec::new()));
-    let capture_mode = Arc::new(Mutex::new(false));
-    let dialog_holder = Arc::new(Mutex::new(None));
-    let settings_holder = Arc::new(Mutex::new(None));
+    // 1. 初始化 UI 全局表现属性
+    {
+        let cfg = state.config.lock().unwrap();
+        ui.set_global_border_width(cfg.global_border_width);
+        ui.set_global_border_color(hex_str_to_color(&cfg.global_border_color));
+        ui.set_top_boundary_px(cfg.top_boundary);
+        ui.set_keys(render_key_models(&cfg));
+    }
 
-    let model = render_key_models(&config.lock().unwrap());
-    ui.set_keys(model.clone());
+    // 2. 绑定主窗体基础拖拽与关闭事件
+    let ui_weak = ui.as_weak();
+    ui.on_gui_drag_window({
+        let ui_weak = ui_weak.clone();
+        move || {
+            if let Some(ui) = ui_weak.upgrade() {
+                let _ = ui.window().with_winit_window(|w| w.drag_window());
+            }
+        }
+    });
+    ui.on_request_close(|| slint::quit_event_loop().unwrap());
 
-    // 修复点一：初始化阶段仅配置基础窗体属性，避免在此处直接改变高级底层 ExStyle 造成 DWM 初始化死锁。
-    ui.window().with_winit_window(|window| {
+    // 3. 注册唤起设置界面的路由
+    let ui_weak_for_route = ui.as_weak();
+    let state_for_route = state.clone();
+    ui.on_request_settings(move || {
+        let settings = SettingsWindow::new().unwrap();
+        gui::settings_window::setup_settings_window(
+            settings,
+            state_for_route.clone(),
+            ui_weak_for_route.clone(),
+        );
+    });
+
+    // 4. 开启后台高性能 Timer 渲染时钟驱动
+    let _event_timer = events::start_event_timer(rx, state.clone(), ui.as_weak());
+
+    // 5. 优雅启动 Winit 底层置顶及无边框窗口
+    ui.show().unwrap();
+    /*
+       let (keys_count, top_boundary_val) = {
+           let cfg = state.config.lock().unwrap();
+           (cfg.keys.len(), cfg.top_boundary)
+       };
+    */
+    ui.window().with_winit_window(move |window| {
         window.set_transparent(true);
         window.set_decorations(false);
         window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
+        #[cfg(windows)]
+        make_window_no_activate(window);
+        window.set_outer_position(winit::dpi::Position::Logical(
+            winit::dpi::LogicalPosition::new(100.0, 100.0),
+        ));
     });
-
-    let ui_weak = ui.as_weak();
-    ui.on_gui_drag_window(move || {
-        if let Some(ui) = ui_weak.upgrade() {
-            let _ = ui.window().with_winit_window(|w| w.drag_window());
-        }
-    });
-
-    let capture_mode_for_settings = capture_mode.clone();
-    let config_for_settings = config.clone();
-    let temp_config_for_settings = temp_config.clone();
-    let ui_weak_for_settings = ui.as_weak();
-    let dialog_holder_for_settings = dialog_holder.clone();
-    let settings_holder_for_settings = settings_holder.clone();
-
-    ui.on_request_settings(move || {
-        let settings = SettingsWindow::new().unwrap();
-        
-        let real_config = config_for_settings.lock().unwrap().clone();
-        *temp_config_for_settings.lock().unwrap() = real_config.clone();
-
-        settings.set_global_grid_size(real_config.grid_size);
-        settings.set_global_top_boundary(real_config.top_boundary);
-        settings.set_global_border_width(real_config.global_border_width);
-        settings.set_global_border_color(hex_str_to_color(&real_config.global_border_color));
-        settings.set_root_preview_keys(render_key_models(&real_config));
-
-        *settings_holder_for_settings.lock().unwrap() = Some(settings.as_weak());
-
-        let temp_config_for_border = temp_config_for_settings.clone();
-        settings.on_global_border_edited(move |width, color| {
-            let mut tmp_inner = temp_config_for_border.lock().unwrap();
-            tmp_inner.global_border_width = width;
-            tmp_inner.global_border_color = color.to_string();
-        });
-
-        let selected_indices = Arc::new(Mutex::new(Vec::<usize>::new()));
-
-        let settings_weak = settings.as_weak();
-        let temp_config_for_update = temp_config_for_settings.clone();
-        let settings_weak_for_update = settings_weak.clone();
-        let selected_indices_for_update = selected_indices.clone();
-        
-        settings.on_update_key_config(move |index, x, y, w, h, color| {
-            let idx = index as usize;
-            let mut tmp_inner = temp_config_for_update.lock().unwrap();
-            let g_size = tmp_inner.grid_size;
-            let select_set = selected_indices_for_update.lock().unwrap();
-
-            if idx >= tmp_inner.keys.len() {
-                return;
-            }
-
-            let snapped_x = apply_snapping(x, g_size) as f32;
-            let snapped_y = apply_snapping(y, g_size) as f32;
-            let new_w = w as f32;
-            let new_h = h as f32;
-            let new_color = color.to_string();
-
-            let old_key = &tmp_inner.keys[idx];
-            let x_changed = snapped_x != old_key.x;
-            let y_changed = snapped_y != old_key.y;
-            let w_changed = new_w != old_key.width;
-            let h_changed = new_h != old_key.height;
-            let color_changed = new_color != old_key.color_pressed;
-
-            let targets: Vec<usize> = if select_set.contains(&idx) {
-                select_set.clone()
-            } else {
-                vec![idx]
-            };
-
-            if let Some(s) = settings_weak_for_update.upgrade() {
-                let model = s.get_root_preview_keys();
-                
-                for &target_idx in &targets {
-                    if target_idx < tmp_inner.keys.len() {
-                        if x_changed { tmp_inner.keys[target_idx].x = snapped_x; }
-                        if y_changed { tmp_inner.keys[target_idx].y = snapped_y; }
-                        if w_changed { tmp_inner.keys[target_idx].width = new_w; }
-                        if h_changed { tmp_inner.keys[target_idx].height = new_h; }
-                        if color_changed { tmp_inner.keys[target_idx].color_pressed = new_color.clone(); }
-
-                        if let Some(mut data) = model.row_data(target_idx) {
-                            if x_changed { data.x = snapped_x; }
-                            if y_changed { data.y = snapped_y; }
-                            if w_changed { data.w = new_w; }
-                            if h_changed { data.h = new_h; }
-                            if color_changed {
-                                data.color_hex = color.clone();
-                                let hex_str = color.as_str().trim_start_matches('#');
-                                if let Ok(rgb) = u32::from_str_radix(hex_str, 16) {
-                                    data.pressed_color = slint::Color::from_argb_encoded(rgb | 0xFF000000);
-                                }
-                            }
-                            model.set_row_data(target_idx, data);
-                        }
-                    }
-                }
-            }
-        });
-
-        let settings_weak_for_click = settings_weak.clone();
-        let selected_indices_for_click = selected_indices.clone();
-        settings.on_key_clicked_in_settings(move |index, ctrl_pressed| {
-            let idx = index as usize;
-            if let Some(s) = settings_weak_for_click.upgrade() {
-                let mut select_set = selected_indices_for_click.lock().unwrap();
-                
-                if ctrl_pressed {
-                    if let Some(pos) = select_set.iter().position(|&i| i == idx) {
-                        select_set.remove(pos);
-                    } else {
-                        select_set.push(idx);
-                    }
-                } else {
-                    select_set.clear();
-                    select_set.push(idx);
-                }
-
-                s.set_selected_index(idx as i32);
-
-                let model = s.get_root_preview_keys();
-                for i in 0..model.row_count() {
-                    if let Some(mut data) = model.row_data(i) {
-                        data.selected = select_set.contains(&i);
-                        model.set_row_data(i, data);
-                    }
-                }
-            }
-        });
-
-        let temp_config_for_delete = temp_config_for_settings.clone();
-        let settings_weak_for_delete = settings_weak.clone();
-
-        settings.on_delete_key(move |index| {
-            let idx = index as usize;
-            let mut tmp_inner = temp_config_for_delete.lock().unwrap();
-
-            if idx < tmp_inner.keys.len() {
-                tmp_inner.keys.remove(idx);
-                let new_model = render_key_models(&tmp_inner);
-                if let Some(s) = settings_weak_for_delete.upgrade() {
-                    s.set_root_preview_keys(new_model);
-                }
-            }
-        });
-
-        let config_for_save = config_for_settings.clone();
-        let temp_config_for_save = temp_config_for_settings.clone();
-        let ui_weak_for_save = ui_weak_for_settings.clone();
-        let settings_weak_for_save = settings_weak.clone();
-        let selected_indices_for_save = selected_indices.clone();
-        
-        settings.on_save_config_clicked(move || {
-            if let Some(s) = settings_weak_for_save.upgrade() {
-                let idx = s.get_selected_index() as usize;
-                let mut tmp_inner = temp_config_for_save.lock().unwrap();
-                let g_size = tmp_inner.grid_size;
-
-                if idx < tmp_inner.keys.len() {
-                    tmp_inner.keys[idx].x = apply_snapping(s.get_current_x(), g_size) as f32;
-                    tmp_inner.keys[idx].y = apply_snapping(s.get_current_y(), g_size) as f32;
-                    tmp_inner.keys[idx].width = s.get_current_w() as f32;
-                    tmp_inner.keys[idx].height = s.get_current_h() as f32;
-                    tmp_inner.keys[idx].color_pressed = s.get_current_color().to_string();
-                }
-
-                let mut real_config = config_for_save.lock().unwrap();
-                *real_config = tmp_inner.clone();
-                save_config(&real_config);
-
-                if let Some(main_ui) = ui_weak_for_save.upgrade() {
-                    main_ui.set_keys(render_key_models(&real_config));
-                    main_ui.set_global_border_width(real_config.global_border_width);
-                    main_ui.set_global_border_color(hex_str_to_color(&real_config.global_border_color));
-                    main_ui.set_top_boundary_px(real_config.top_boundary);
-                }
-                
-                selected_indices_for_save.lock().unwrap().clear();
-                s.hide().unwrap();
-            }
-        });
-
-        let temp_config_for_grid = temp_config_for_settings.clone();
-        settings.on_grid_size_edited(move |new_size| {
-            let mut tmp_inner = temp_config_for_grid.lock().unwrap();
-            tmp_inner.grid_size = new_size;
-        });
-
-        let temp_config_for_boundary = temp_config_for_settings.clone();
-        settings.on_top_boundary_edited(move |new_boundary| {
-            let mut tmp_inner = temp_config_for_boundary.lock().unwrap();
-            tmp_inner.top_boundary = new_boundary;
-        });
-
-        let capture_mode_for_add_key = capture_mode_for_settings.clone();
-        let dialog_holder_clone = dialog_holder_for_settings.clone();
-        let settings_weak_for_add_key = settings_weak.clone();
-
-        settings.on_add_new_key(move || {
-            let mut mode = capture_mode_for_add_key.lock().unwrap();
-            *mode = true; 
-
-            if let Some(s) = settings_weak_for_add_key.upgrade() {
-                s.set_capturing_mode(true);
-            }
-
-            let capture_dialog = KeyCaptureDialog::new().unwrap();
-            capture_dialog.show().unwrap();
-            *dialog_holder_clone.lock().unwrap() = Some(capture_dialog.as_weak());
-        });
-
-        let settings_holder_for_close = settings_holder_for_settings.clone();
-        let settings_weak_for_close = settings_weak.clone();
-
-        settings.on_close_clicked(move || {
-            if let Some(s) = settings_weak_for_close.upgrade() {
-                s.hide().unwrap();
-            }
-            *settings_holder_for_close.lock().unwrap() = None;
-        });
-
-        settings.show().unwrap();
-    });
-
-    ui.on_request_close(|| slint::quit_event_loop().unwrap());
 
     init_platform_input_listener(tx, &ui);
 
-    let ui_weak = ui.as_weak();
-    let active_notes_for_timer = active_notes.clone();
-    let config_for_timer = config.clone();
-    let temp_config_for_timer = temp_config.clone();
-
-    let settings_holder_for_timer = settings_holder.clone();
-    let dialog_holder_for_timer = dialog_holder.clone();
-    let capture_mode_for_timer = capture_mode.clone();
-
-    // 修复点二：建立一客制化单次定时器，保证在 Slint 主事件循环跑起来的第一帧后，再动态注入 WS_EX_NOACTIVATE。
-    let init_timer = slint::Timer::default();
-    let ui_weak_for_init = ui.as_weak();
-    init_timer.start(
-        slint::TimerMode::SingleShot,
-        std::time::Duration::from_millis(100),
-        move || {
-            if let Some(main_ui) = ui_weak_for_init.upgrade() {
-                main_ui.window().with_winit_window(|window| {
-                    make_window_no_activate(window);
-                });
-            }
-        }
-    );
-
-    let event_timer = slint::Timer::default();
-    event_timer.start(
-        slint::TimerMode::Repeated,
-        std::time::Duration::from_millis(16),
-        move || {
-            let mut notes = active_notes_for_timer.lock().unwrap();
-            
-            while let Ok(event) = rx.try_recv() {
-                let is_capturing = *capture_mode_for_timer.lock().unwrap();
-                
-                if is_capturing {
-                    if let MyKeyEvent::Press { rdev_name } = event {
-                        if rdev_name == "Escape" {
-                            *capture_mode_for_timer.lock().unwrap() = false;
-                            if let Some(s) = settings_holder_for_timer.lock().unwrap().as_ref().and_then(|s| s.upgrade()) {
-                                s.set_capturing_mode(false);
-                            }
-                            if let Some(d) = dialog_holder_for_timer.lock().unwrap().as_ref().and_then(|d| d.upgrade()) {
-                                d.hide().unwrap();
-                            }
-                            *dialog_holder_for_timer.lock().unwrap() = None;
-                            continue;
-                        }
-
-                        let mut tmp_inner = temp_config_for_timer.lock().unwrap();
-                        let spawn_x = (tmp_inner.keys.len() * 90) as f32 + 10.0;
-
-                        let new_key = KeyConfig {
-                            rdev_key_name: rdev_name.clone(),
-                            display_name: rdev_name.replace("Key", ""),
-                            x: spawn_x,
-                            y: 10.0,
-                            width: 80.0,
-                            height: 80.0,
-                            color_pressed: "#4A90E2".into(),
-                        };
-
-                        tmp_inner.keys.push(new_key);
-
-                        let new_model = render_key_models(&tmp_inner);
-                        if let Some(s) = settings_holder_for_timer.lock().unwrap().as_ref().and_then(|s| s.upgrade()) {
-                            s.set_root_preview_keys(new_model);
-                            s.set_capturing_mode(false);
-                        }
-                        
-                        if let Some(d) = dialog_holder_for_timer.lock().unwrap().as_ref().and_then(|d| d.upgrade()) {
-                            d.hide().unwrap();
-                        }
-                        *dialog_holder_for_timer.lock().unwrap() = None;
-                        *capture_mode_for_timer.lock().unwrap() = false;
-                    }
-                    continue; 
-                }
-
-                let config_inner = config_for_timer.lock().unwrap();
-                match event {
-                    MyKeyEvent::Press { rdev_name } => {
-                        if config_inner.keys.iter().any(|k| k.rdev_key_name == rdev_name) {
-                            if let Some(key_cfg) = config_inner.keys.iter().find(|k| k.rdev_key_name == rdev_name) {
-                                for note in notes.iter_mut().filter(|n| n.rdev_key_name == rdev_name && n.is_growing) {
-                                    note.is_growing = false;
-                                }
-
-                                let spawn_y = key_cfg.y + key_cfg.height;
-                                notes.push(BarNote {
-                                    rdev_key_name: rdev_name.clone(),
-                                    x: key_cfg.x,
-                                    width: key_cfg.width,
-                                    y: spawn_y,
-                                    height: 0.0,
-                                    color: key_cfg.color_pressed.clone(),
-                                    is_growing: true,
-                                });
-                            }
-                            update_key_visual_state(&ui_weak, rdev_name, true);
-                        }
-                    }
-                    MyKeyEvent::Release { rdev_name } => {
-                        if config_inner.keys.iter().any(|k| k.rdev_key_name == rdev_name) {
-                            for note in notes.iter_mut().filter(|n| n.rdev_key_name == rdev_name) {
-                                note.is_growing = false;
-                            }
-                            update_key_visual_state(&ui_weak, rdev_name, false);
-                        }
-                    }
-                }
-            }
-
-            let move_speed = 6.0;
-            for note in notes.iter_mut() {
-                if note.is_growing {
-                    note.height += move_speed;
-                } else {
-                    note.y += move_speed;
-                }
-            }
-            
-            let boundary_val = {
-                config_for_timer.lock().unwrap().top_boundary
-            };
-            let max_height = 200.0 + boundary_val as f32;
-            notes.retain(|note| note.is_growing || (note.y - note.height) < max_height);
-
-            if let Some(main_ui) = ui_weak.upgrade() {
-                main_ui.set_bar_notes(render_bar_models(&notes));
-            }
-        },
-    );
-
-    ui.run().unwrap();
+    tracing::debug!("[DEBUG] ---> 启动 Slint 全局事件循环...");
+    slint::run_event_loop().unwrap();
 }
 
-fn update_key_visual_state(
-    ui_weak: &slint::Weak<MainWindow>,
-    key_name: String,
-    is_pressed: bool,
-) {
+fn update_key_visual_state(ui_weak: &slint::Weak<MainWindow>, key_name: String, is_pressed: bool) {
     if let Some(ui) = ui_weak.upgrade() {
         let model = ui.get_keys();
         for idx in 0..model.row_count() {
@@ -627,153 +315,193 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
 
 #[cfg(windows)]
 fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindow) {
-    use std::mem::{size_of, zeroed};
-    use std::ptr::null_mut;
+    use std::mem::size_of;
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::Input::{
-        GetRawInputData, HRAWINPUT, RAWINPUT, RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT,
-        RIDEV_INPUTSINK, RIM_TYPEKEYBOARD, RegisterRawInputDevices,
+        GetRawInputData,
+        HRAWINPUT,
+        RAWINPUT,
+        RAWINPUTDEVICE,
+        RAWINPUTHEADER,
+        RID_INPUT, // 某些版本中，这俩属于 UI::Input 模块
+        RIDEV_INPUTSINK,
+        RIM_TYPEKEYBOARD,
+        RegisterRawInputDevices,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW,
-        HWND_MESSAGE, RegisterClassExW, TranslateMessage, WM_INPUT, WNDCLASSEXW,
+        CreateWindowExW,
+        DefWindowProcW,
+        DestroyWindow,
+        DispatchMessageW,
+        GWLP_USERDATA,
+        GetMessageW,
+        HWND_MESSAGE, // WM_INPUT 和 HWND_MESSAGE 实际属于 WindowsAndMessaging
+        RegisterClassW,
+        TranslateMessage,
+        WM_DESTROY,
+        WM_INPUT,
+        WNDCLASSW,
+        WS_EX_LEFT,
     };
-    use windows::core::w;
+    use windows::core::PCWSTR;
 
-    thread::spawn(move || unsafe {
-        static mut GLOBAL_TX: Option<channel::Sender<MyKeyEvent>> = None;
-        GLOBAL_TX = Some(tx);
+    let tx_clone = tx.clone();
 
-        unsafe extern "system" fn raw_input_wnd_proc(
-            hwnd: HWND,
-            msg: u32,
-            wparam: WPARAM,
-            lparam: LPARAM,
-        ) -> LRESULT {
-            if msg == WM_INPUT {
-                let mut size: u32 = 0;
-                let h_raw = HRAWINPUT(lparam.0 as *mut std::ffi::c_void);
+    thread::spawn(move || {
+        unsafe {
+            // 1. 定义私有窗口回调
+            unsafe extern "system" fn wnd_proc(
+                hwnd: HWND,
+                msg: u32,
+                wparam: WPARAM,
+                lparam: LPARAM,
+            ) -> LRESULT {
+                if msg == WM_INPUT {
+                    // 从 GWLP_USERDATA 取出之前存入的 Sender 指针
+                    let tx_ptr = unsafe {
+                        windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(
+                            hwnd,
+                            GWLP_USERDATA,
+                        )
+                    } as *const channel::Sender<MyKeyEvent>;
 
-                let _ = GetRawInputData(
-                    h_raw,
-                    RID_INPUT,
-                    None,
-                    &mut size,
-                    size_of::<RAWINPUTHEADER>() as u32,
-                );
+                    if !tx_ptr.is_null() {
+                        // 解引用裸指针
+                        let tx = unsafe { &*tx_ptr };
 
-                if size > 0 {
-                    let mut buffer = vec![0u8; size as usize];
-                    let fetch_res = GetRawInputData(
-                        h_raw,
-                        RID_INPUT,
-                        Some(buffer.as_mut_ptr() as *mut std::ffi::c_void),
-                        &mut size,
-                        size_of::<RAWINPUTHEADER>() as u32,
-                    );
+                        let mut size: u32 = 0;
 
-                    if fetch_res != u32::MAX {
-                        let raw = &*(buffer.as_ptr() as *const RAWINPUT);
+                        // 获取所需缓冲区大小
+                        let ret = unsafe {
+                            GetRawInputData(
+                                HRAWINPUT(lparam.0 as *mut std::ffi::c_void),
+                                RID_INPUT,
+                                None,
+                                &mut size,
+                                size_of::<RAWINPUTHEADER>() as u32,
+                            )
+                        };
 
-                        if raw.header.dwType == RIM_TYPEKEYBOARD.0 {
-                            let k = raw.data.keyboard;
-                            let rdev_name = win_vkey_to_rdev_string(k.VKey);
-                            let is_break = (k.Flags as u32 & 0x0001) != 0;
+                        if ret != u32::MAX {
+                            let mut buffer = vec![0u8; size as usize];
 
-                            if let Some(tx) = (*std::ptr::addr_of!(GLOBAL_TX)).as_ref() {
-                                let event = if is_break {
-                                    MyKeyEvent::Release { rdev_name }
-                                } else {
-                                    MyKeyEvent::Press { rdev_name }
-                                };
-                                let _ = tx.try_send(event);
+                            // 获取实际的 Raw Input 数据
+                            let ret = unsafe {
+                                GetRawInputData(
+                                    HRAWINPUT(lparam.0 as *mut std::ffi::c_void),
+                                    RID_INPUT,
+                                    Some(buffer.as_mut_ptr() as *mut std::ffi::c_void),
+                                    &mut size,
+                                    size_of::<RAWINPUTHEADER>() as u32,
+                                )
+                            };
+
+                            if ret != u32::MAX {
+                                // 解引用裸指针
+                                let raw = unsafe { &*(buffer.as_ptr() as *const RAWINPUT) };
+
+                                if raw.header.dwType == RIM_TYPEKEYBOARD.0 {
+                                    // 访问联合体(union)字段
+                                    let keyboard = unsafe { &raw.data.keyboard };
+                                    let vkey = keyboard.VKey;
+                                    let flags = keyboard.Flags;
+
+                                    if vkey != 255 {
+                                        let is_release = (flags & 1) != 0;
+                                        let key_name = win_vkey_to_rdev_str(vkey);
+
+                                        let event = if is_release {
+                                            MyKeyEvent::Release {
+                                                rdev_name: key_name.to_string(),
+                                            }
+                                        } else {
+                                            MyKeyEvent::Press {
+                                                rdev_name: key_name.to_string(),
+                                            }
+                                        };
+                                        let _ = tx.send(event);
+                                    }
+                                }
                             }
                         }
                     }
+                    return LRESULT(0);
+                } else if msg == WM_DESTROY {
+                    unsafe {
+                        windows::Win32::UI::WindowsAndMessaging::PostQuitMessage(0);
+                    }
+                    return LRESULT(0);
                 }
+
+                unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
             }
-            // 修复点三：明确传递当前纯消息窗体的 HWND，使其完全闭环，不与主线程 winit 发生链条抢占。
-            DefWindowProcW(hwnd, msg, wparam, lparam)
-        }
 
-        let class_name = w!("RawInputMsgOnlyWindowClass");
-        let wnd_class = WNDCLASSEXW {
-            cbSize: size_of::<WNDCLASSEXW>() as u32,
-            style: CS_HREDRAW | CS_VREDRAW,
-            lpfnWndProc: Some(raw_input_wnd_proc),
-            hInstance: HINSTANCE(null_mut()),
-            lpszClassName: class_name,
-            ..zeroed()
-        };
+            // 2. 注册窗口类
+            let class_name: Vec<u16> = "KeyTick_Sink_Class\0".encode_utf16().collect();
+            let wnd_class = WNDCLASSW {
+                lpfnWndProc: Some(wnd_proc),
+                hInstance: HINSTANCE(std::ptr::null_mut()),
+                lpszClassName: PCWSTR(class_name.as_ptr()),
+                ..Default::default()
+            };
+            RegisterClassW(&wnd_class);
 
-        if RegisterClassExW(&wnd_class) == 0 {
-            eprintln!("Windows 后台消息窗口类注册失败！");
-            return;
-        }
+            // 3. 创建纯消息窗口 (修复 Option<HWND> 和 HWND_MESSAGE 的匹配问题)
+            let hwnd_msg_sink = CreateWindowExW(
+                WS_EX_LEFT,
+                PCWSTR(class_name.as_ptr()),
+                PCWSTR(std::ptr::null()),
+                windows::Win32::UI::WindowsAndMessaging::WINDOW_STYLE(0),
+                0,
+                0,
+                0,
+                0,
+                Some(HWND_MESSAGE), // 修复点：某些版本此参数需要 Some() 包裹
+                None,
+                Some(HINSTANCE(std::ptr::null_mut())),
+                None,
+            )
+            .expect("无法创建 Windows 消息监听窗口");
 
-        let hwnd_msg_sink = CreateWindowExW(
-            Default::default(),
-            class_name,
-            w!("RawInputSink"),
-            Default::default(),
-            0,
-            0,
-            0,
-            0,
-            Some(HWND_MESSAGE),
-            None,
-            Some(HINSTANCE(null_mut())),
-            None,
-        )
-        .expect("Windows 纯消息窗口创建失败！");
+            // 将 tx 的指针存入窗口自定义数据区（修复 isize 到 *mut c_void 的类型转换）
+            let tx_boxed = Box::new(tx_clone);
+            windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+                hwnd_msg_sink,
+                GWLP_USERDATA,
+                Box::into_raw(tx_boxed) as isize, // 保持存入为整数
+            );
 
-        let mut devices: [RAWINPUTDEVICE; 1] = zeroed();
-        devices[0].usUsagePage = 1;
-        devices[0].usUsage = 6;
-        devices[0].dwFlags = RIDEV_INPUTSINK;
-        devices[0].hwndTarget = hwnd_msg_sink;
+            // 4. 注册 Raw Input 监听设备
+            let devices = [RAWINPUTDEVICE {
+                usUsagePage: 0x01,
+                usUsage: 0x06,
+                dwFlags: RIDEV_INPUTSINK,
+                hwndTarget: hwnd_msg_sink,
+            }];
 
-        if RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32).is_err() {
-            eprintln!("Windows Raw Input 注册失败！");
-            return;
-        }
+            if RegisterRawInputDevices(&devices, size_of::<RAWINPUTDEVICE>() as u32).is_err() {
+                eprintln!("Windows Raw Input 注册失败！");
+                return;
+            }
 
-        let mut msg = std::mem::zeroed();
-        // 修复点四：指定明确捕获 hwnd_msg_sink 的消息流，切断对 winit 主线程潜在的虚假全局消息拦截。
-        while GetMessageW(&mut msg, Some(hwnd_msg_sink), 0, 0).as_bool() {
-            let _ = TranslateMessage(&msg);
-            DispatchMessageW(&msg);
+            // 5. 完美的 GetMessageW 安全循环 (适配 Some(hwnd_msg_sink))
+            let mut msg = std::mem::zeroed();
+            while GetMessageW(&mut msg, None, 0, 0).0 > 0 {
+                // 第二个参数改成 None 监听全队列消息
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+
+            // 6. 线程退出时清理资源
+            let tx_ptr = windows::Win32::UI::WindowsAndMessaging::SetWindowLongPtrW(
+                hwnd_msg_sink,
+                GWLP_USERDATA,
+                0,
+            ) as *mut channel::Sender<MyKeyEvent>;
+            if !tx_ptr.is_null() {
+                let _ = Box::from_raw(tx_ptr);
+            }
+            let _ = DestroyWindow(hwnd_msg_sink);
         }
     });
-}
-
-#[cfg(windows)]
-fn win_vkey_to_rdev_string(vkey: u16) -> String {
-    match vkey {
-        0x41..=0x5A => format!("Key{}", (vkey as u8 as char)),
-        0x30..=0x39 => format!("Key{}", (vkey as u8 as char)),
-        0x1B => "Escape".into(),
-        0x20 => "Space".into(),
-        0x0D => "Return".into(),
-        0x08 => "Backspace".into(),
-        0x09 => "Tab".into(),
-        0x25 => "LeftArrow".into(),
-        0x26 => "UpArrow".into(),
-        0x27 => "RightArrow".into(),
-        0x28 => "DownArrow".into(),
-        0xBA => "SemiColon".into(),
-        0xDE => "Quote".into(),
-        0xBB => "Equal".into(),
-        0xBD => "Minus".into(),
-        0xDC => "BackSlash".into(),
-        0xDB => "LeftBracket".into(),
-        0xDD => "RightBracket".into(),
-        0xC0 => "BackQuote".into(),
-        0xBF => "Slash".into(),
-        0x6A => "KpMultiply".into(),
-        0x6B => "KpAdd".into(),
-        0x6D => "KpSubtract".into(),
-        0x6F => "KpDivide".into(),
-        _ => format!("Unknown(0x{:X})", vkey),
-    }
 }

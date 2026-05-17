@@ -277,9 +277,6 @@ export component KeyCaptureDialog inherits Window {
 export component MainWindow inherits Window {
     title: "KeyTick";
     width: Math.min(1200px, 20px + root.keys.length * 90px);
-    
-    // 核心机制：让窗口总高度根据配置的顶部边界动态可变
-    // 基础高度 200px + 边界高度值，长条飞得越远，透明窗口越高
     height: 200px + root.top_boundary_px * 1px;
     background: transparent;
     no-frame: true;
@@ -348,7 +345,7 @@ export component MainWindow inherits Window {
             // ✨ 实现方式：利用每个按键的位置 + 全局边框属性进行无缝渲染
             border-width: root.global_border_width * 1px;
             border-color: root.global_border_color;
-            border-radius: 4px;
+            //border-radius: 4px;
             Text {
                 text: key_info.display_name;
                 color: white;

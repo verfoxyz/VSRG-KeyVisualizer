@@ -1,16 +1,23 @@
 {
-  "grid_size": 4,
-  "top_boundary": 0,
-  "window_x": -1,
-  "window_y": -1,
+  "grid_size": 5,
+  "top_boundary": 300,
   "global_border_width": 1,
   "global_border_color": "#555555",
   "keys": [
     {
       "rdev_key_name": "KeyA",
       "display_name": "A",
-      "x": 10.0,
-      "y": 10.0,
+      "x": 0.0,
+      "y": 0.0,
+      "width": 80.0,
+      "height": 80.0,
+      "color_pressed": "#FFFFFF"
+    },
+    {
+      "rdev_key_name": "KeyS",
+      "display_name": "S",
+      "x": 90.0,
+      "y": 0.0,
       "width": 80.0,
       "height": 80.0,
       "color_pressed": "#4A90E2"
