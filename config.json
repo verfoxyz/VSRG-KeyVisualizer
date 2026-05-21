@@ -12,7 +12,7 @@
       "y": 10,
       "width": 80,
       "height": 80,
-      "color_pressed": "#FFFFFF"
+      "color_pressed": "#4A90E2"
     },
     {
       "rdev_key_name": "KeyS",
@@ -27,6 +27,15 @@
       "rdev_key_name": "KeyD",
       "display_name": "D",
       "x": 210,
+      "y": 10,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "KeyF",
+      "display_name": "F",
+      "x": 310,
       "y": 10,
       "width": 80,
       "height": 80,

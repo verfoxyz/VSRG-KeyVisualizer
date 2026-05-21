@@ -3,8 +3,8 @@ mod gui {
     pub mod settings_window;
 }
 mod events;
-mod ri_table;
 mod physics;
+mod ri_table;
 // ====================模块定义====================
 use crossbeam_channel as channel;
 use i_slint_backend_winit::WinitWindowAccessor;
@@ -16,17 +16,19 @@ use std::ffi::c_void;
 use std::fs;
 use std::path::Path;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex};
 use std::thread;
 use tracing;
 //use tracing_subscriber::fmt; // 或者 use tracing_subscriber;
 use crate::ri_table::win_vkey_to_rdev_str;
 use state::AppState;
-
 slint::include_modules!();
 
-fn default_top_boundary() -> i32 {0}
-fn default_grid_size() -> i32 {5}
+fn default_top_boundary() -> i32 {
+    0
+}
+fn default_grid_size() -> i32 {
+    5
+}
 
 #[derive(Clone, Debug)]
 struct BarNote {
@@ -101,7 +103,7 @@ impl Default for AppConfig {
                 rdev_key_name: "KeyA".into(),
                 display_name: "A".into(),
                 x: 10,
-                y: 10,
+                y: 10, // 物理 Y：按键顶部距窗口底部 10px
                 width: 80,
                 height: 80,
                 color_pressed: "#4A90E2".into(),
@@ -187,11 +189,22 @@ fn render_key_models(config: &AppConfig) -> slint::ModelRc<KeyData> {
     slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(key_models)))
 }
 
+/// 线程安全的 HWND 包装（HWND 本身是 `*mut c_void`，不自动实现 Send）
+#[derive(Clone, Copy)]
+struct SafeHWND(windows::Win32::Foundation::HWND);
+unsafe impl Send for SafeHWND {}
+unsafe impl Sync for SafeHWND {}
+
+/// 存储主窗口 HWND，供拖动回调使用
+static MAIN_HWND: std::sync::Mutex<Option<SafeHWND>> = std::sync::Mutex::new(None);
+
 #[cfg(windows)]
-fn make_window_no_activate(window: &winit::window::Window) {
-    use windows::Win32::Foundation::HWND;
+fn make_window_clickthrough(window: &winit::window::Window) {
+    use windows::Win32::Foundation::{COLORREF, HWND};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongW, SetWindowLongW, WS_EX_NOACTIVATE,
+        GWL_EXSTYLE, GetWindowLongW, HWND_TOPMOST, LWA_COLORKEY, SetLayeredWindowAttributes,
+        SetWindowLongW, SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        WS_EX_LAYERED,
     };
 
     let hwnd = match window.window_handle().unwrap().as_raw() {
@@ -201,41 +214,74 @@ fn make_window_no_activate(window: &winit::window::Window) {
 
     unsafe {
         let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-        // 结合 backup 里的透明穿透属性，保证 overlay 悬浮窗表现正常，同时避免 DWM 绘制死锁
-        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_NOACTIVATE.0 as i32);
+
+        // 1. 添加分层样式（LWA_COLORKEY 需要 WS_EX_LAYERED）
+        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
+
+        // 2. 激活颜色键穿透（黑色像素 → 透明 → 点击穿透到下层窗口）
+        if SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_COLORKEY).is_err() {
+            tracing::error!("SetLayeredWindowAttributes 失败");
+        }
+
+        // 3. ⚠️ 关键：SetWindowPos 刷新窗口非客户区，使 WS_EX_LAYERED 生效
+        let _ = SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            0,
+            0,
+            0,
+            0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
+        );
     }
+
+    tracing::debug!("[clickthrough] 主窗口 HWND 已存储");
+    *MAIN_HWND.lock().unwrap() = Some(SafeHWND(hwnd));
 }
 
 fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
-    // 宽度：按键中最右边的位置 + 边距
+    // 宽度：按键中最右边的位置 + 边距（无上限限制）
     let width = if config.keys.is_empty() {
         1200
     } else {
-        let max_right = config.keys.iter()
-            .map(|k| k.x + k.width)
-            .max()
-            .unwrap_or(0);
-        std::cmp::min(1200, max_right + config.key_margin_width)
+        let max_right = config.keys.iter().map(|k| k.x + k.width).max().unwrap_or(0);
+        max_right + config.key_margin_width
     };
-    
-    // 高度：按键中最顶部的位置 + 顶部边界
+
+    // 高度 = 最低按键底部物理 Y + top_boundary（顶部留白区域）
+    // key.y = 按键顶部物理 Y（从底部向上），按键底部 = key.y + key.h
     let height = if config.keys.is_empty() {
         500
     } else {
-        let min_top = config.keys.iter()
-            .map(|k| k.y)
-            .min()
+        let max_bottom = config
+            .keys
+            .iter()
+            .map(|k| k.y + k.height)
+            .max()
             .unwrap_or(0);
-        min_top + config.top_boundary
+        max_bottom + config.top_boundary
     };
-    
+
     (width, height)
+}
+
+/// 创建设置窗口并绑定回调
+fn create_settings_window(
+    state: &AppState,
+    main_ui_weak: &slint::Weak<MainWindow>,
+) -> Option<SettingsWindow> {
+    let settings = SettingsWindow::new().ok()?;
+    settings.show().unwrap();
+    gui::settings_window::setup_settings_window(settings, state.clone(), main_ui_weak.clone());
+    // setup_settings_window 会存储弱引用，窗口由 Slint 事件循环保持存活
+    // 我们不持有 Rust 端的强引用，window 关闭后自动清理
+    None
 }
 
 /// ====================主函数====================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
@@ -255,53 +301,101 @@ fn main() {
         ui.set_key_margin_width(cfg.key_margin_width);
         ui.set_top_boundary_px(cfg.top_boundary);
         ui.set_keys(render_key_models(&cfg));
+        // 计算按键区域高度：最大物理 Y 范围 + 底部边距
+        let max_bottom = cfg.keys.iter().map(|k| k.y + k.height).max().unwrap_or(0);
+        let key_area_h = if max_bottom > 0 {
+            max_bottom + cfg.key_margin_width
+        } else {
+            100
+        };
+        ui.set_key_area_height(key_area_h);
     }
 
-    // 2. 绑定主窗体基础拖拽与关闭事件
-    let ui_weak = ui.as_weak();
-    ui.on_gui_drag_window({
-        let ui_weak = ui_weak.clone();
-        move || {
-            if let Some(ui) = ui_weak.upgrade() {
-                let _ = ui.window().with_winit_window(|w| w.drag_window());
+    // 2. 绑定主窗体单击/双击检测事件
+    // ⚠️ moved 每帧触发多次，用标志位防止反复中断/重启拖动
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static DRAG_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+    let last_click = std::sync::Arc::new(std::sync::Mutex::new(std::time::Instant::now()));
+    let ui_weak_click = ui.as_weak();
+    let state_for_click = state.clone();
+    ui.on_gui_click(move |_x, _y| {
+        // 重置拖动标志，允许下次拖动
+        DRAG_ACTIVE.store(false, Ordering::SeqCst);
+
+        let now = std::time::Instant::now();
+        let elapsed = now.duration_since(*last_click.lock().unwrap());
+        *last_click.lock().unwrap() = now;
+
+        if elapsed.as_millis() < 300 {
+            // 双击：打开设置窗口
+            create_settings_window(&state_for_click, &ui_weak_click);
+        }
+        // 单击不再触发拖拽，由 gui_drag_window 回调处理
+    });
+
+    // 3. 绑定主窗体拖拽事件（由按键区域 TouchArea 的 moved 触发）
+    // 使用 Code_template 方案：ReleaseCapture + SendMessage(WM_NCLBUTTONDOWN, HTCAPTION)
+    ui.on_gui_drag_window(move || {
+        if DRAG_ACTIVE.swap(true, Ordering::SeqCst) {
+            return; // 已在拖动中，跳过
+        }
+        use windows::Win32::Foundation::{LPARAM, WPARAM};
+        use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
+        use windows::Win32::UI::WindowsAndMessaging::{HTCAPTION, SendMessageW, WM_NCLBUTTONDOWN};
+        let guard = MAIN_HWND.lock().unwrap();
+        if let Some(safe) = *guard {
+            let hwnd = safe.0;
+            unsafe {
+                let _ = ReleaseCapture();
+                let _ = SendMessageW(
+                    hwnd,
+                    WM_NCLBUTTONDOWN,
+                    Some(WPARAM(HTCAPTION as usize)),
+                    Some(LPARAM(0)),
+                );
             }
         }
     });
     ui.on_request_close(|| slint::quit_event_loop().unwrap());
 
-    // 3. 注册唤起设置界面的路由
-    let ui_weak_for_route = ui.as_weak();
-    let state_for_route = state.clone();
-    ui.on_request_settings(move || {
-        let settings = SettingsWindow::new().unwrap();
-        gui::settings_window::setup_settings_window(
-            settings,
-            state_for_route.clone(),
-            ui_weak_for_route.clone(),
-        );
-    });
-
     // 4. 开启后台高性能 Timer 渲染时钟驱动
     let _event_timer = events::start_event_timer(rx, state.clone(), ui.as_weak());
 
-    // 5. 优雅启动 Winit 底层置顶及无边框窗口
+    // 5. 显示窗口
     ui.show().unwrap();
-    /*
-       let (keys_count, top_boundary_val) = {
-           let cfg = state.config.lock().unwrap();
-           (cfg.keys.len(), cfg.top_boundary)
-       };
-    */
-    ui.window().with_winit_window(move |window| {
-        window.set_transparent(true);
-        window.set_decorations(false);
-        window.set_window_level(winit::window::WindowLevel::AlwaysOnTop);
-        #[cfg(windows)]
-        make_window_no_activate(window);
-        window.set_outer_position(winit::dpi::Position::Logical(
-            winit::dpi::LogicalPosition::new(100.0, 100.0),
-        ));
-    });
+
+    // 6. ⚠️ 必须使用 spawn_local + async 在事件循环内部获取 winit 窗口
+    //    同步的 with_winit_window 在 show() 后可能因窗口未就绪而静默跳过
+    {
+        let ui_weak = ui.as_weak();
+        slint::spawn_local(async move {
+            let ui = match ui_weak.upgrade() {
+                Some(u) => u,
+                None => {
+                    tracing::error!("[setup] 窗口弱引用已失效");
+                    return;
+                }
+            };
+
+            match ui.window().winit_window().await {
+                Ok(winit_window) => {
+                    #[cfg(windows)]
+                    make_window_clickthrough(&winit_window);
+
+                    winit_window.set_outer_position(winit::dpi::Position::Logical(
+                        winit::dpi::LogicalPosition::new(100.0, 100.0),
+                    ));
+
+                    tracing::debug!("[setup] 窗口穿透属性已激活");
+                }
+                Err(e) => {
+                    tracing::error!("[setup] 获取 winit 窗口失败: {:?}", e);
+                }
+            }
+        })
+        .unwrap();
+    }
 
     init_platform_input_listener(tx, &ui);
 
