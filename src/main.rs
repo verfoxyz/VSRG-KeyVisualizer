@@ -4,6 +4,7 @@ mod gui {
 }
 mod events;
 mod ri_table;
+mod physics;
 // ====================模块定义====================
 use crossbeam_channel as channel;
 use i_slint_backend_winit::WinitWindowAccessor;
@@ -24,20 +25,16 @@ use state::AppState;
 
 slint::include_modules!();
 
-fn default_top_boundary() -> i32 {
-    0
-}
-fn default_grid_size() -> i32 {
-    4
-}
+fn default_top_boundary() -> i32 {0}
+fn default_grid_size() -> i32 {5}
 
 #[derive(Clone, Debug)]
 struct BarNote {
     rdev_key_name: String,
-    x: f32,
-    width: f32,
-    y: f32,
-    height: f32,
+    x: i32,
+    width: i32,
+    y: i32,
+    height: i32,
     color: String,
     is_growing: bool,
 }
@@ -59,10 +56,10 @@ fn apply_snapping(value: i32, grid_size: i32) -> i32 {
 struct KeyConfig {
     rdev_key_name: String,
     display_name: String,
-    x: f32,
-    y: f32,
-    width: f32,
-    height: f32,
+    x: i32,
+    y: i32,
+    width: i32,
+    height: i32,
     color_pressed: String,
 }
 
@@ -71,6 +68,9 @@ fn default_border_width() -> i32 {
 }
 fn default_border_color() -> String {
     "#555555".into()
+}
+fn default_margin_width() -> i32 {
+    10
 }
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct AppConfig {
@@ -83,6 +83,8 @@ struct AppConfig {
     global_border_width: i32,
     #[serde(default = "default_border_color")]
     global_border_color: String,
+    #[serde(default = "default_margin_width")]
+    key_margin_width: i32,
 
     keys: Vec<KeyConfig>,
 }
@@ -94,13 +96,14 @@ impl Default for AppConfig {
             grid_size: default_grid_size(),
             global_border_width: default_border_width(),
             global_border_color: default_border_color(),
+            key_margin_width: default_margin_width(),
             keys: vec![KeyConfig {
                 rdev_key_name: "KeyA".into(),
                 display_name: "A".into(),
-                x: 10.0,
-                y: 10.0,
-                width: 80.0,
-                height: 80.0,
+                x: 10,
+                y: 10,
+                width: 80,
+                height: 80,
                 color_pressed: "#4A90E2".into(),
             }],
         }
@@ -143,10 +146,10 @@ fn render_bar_models(notes: &[BarNote]) -> ModelRc<KeyData> {
             name: note.rdev_key_name.clone().into(),
             display_name: "".into(),
             is_pressed: false,
-            x: note.x,
-            y: note.y,
-            w: note.width,
-            h: note.height,
+            x: note.x as f32,
+            y: note.y as f32,
+            w: note.width as f32,
+            h: note.height as f32,
             pressed_color: parsed_color,
             color_hex: note.color.clone().into(),
             selected: false,
@@ -167,10 +170,10 @@ fn render_key_models(config: &AppConfig) -> slint::ModelRc<KeyData> {
             name: k.rdev_key_name.clone().into(),
             display_name: k.display_name.clone().into(),
             is_pressed: false,
-            x: k.x,
-            y: k.y,
-            w: k.width,
-            h: k.height,
+            x: k.x as f32,
+            y: k.y as f32,
+            w: k.width as f32,
+            h: k.height as f32,
             color_hex: k.color_pressed.clone().into(),
             pressed_color: slint::Color::from_argb_encoded(
                 u32::from_str_radix(k.color_pressed.trim_start_matches('#'), 16)
@@ -203,6 +206,32 @@ fn make_window_no_activate(window: &winit::window::Window) {
     }
 }
 
+fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
+    // 宽度：按键中最右边的位置 + 边距
+    let width = if config.keys.is_empty() {
+        1200
+    } else {
+        let max_right = config.keys.iter()
+            .map(|k| k.x + k.width)
+            .max()
+            .unwrap_or(0);
+        std::cmp::min(1200, max_right + config.key_margin_width)
+    };
+    
+    // 高度：按键中最顶部的位置 + 顶部边界
+    let height = if config.keys.is_empty() {
+        500
+    } else {
+        let min_top = config.keys.iter()
+            .map(|k| k.y)
+            .min()
+            .unwrap_or(0);
+        min_top + config.top_boundary
+    };
+    
+    (width, height)
+}
+
 /// ====================主函数====================
 fn main() {
     tracing_subscriber::fmt()
@@ -218,8 +247,12 @@ fn main() {
     // 1. 初始化 UI 全局表现属性
     {
         let cfg = state.config.lock().unwrap();
+        let (width, height) = calculate_window_size(&cfg);
+        ui.set_window_width_px(width);
+        ui.set_window_height_px(height);
         ui.set_global_border_width(cfg.global_border_width);
         ui.set_global_border_color(hex_str_to_color(&cfg.global_border_color));
+        ui.set_key_margin_width(cfg.key_margin_width);
         ui.set_top_boundary_px(cfg.top_boundary);
         ui.set_keys(render_key_models(&cfg));
     }

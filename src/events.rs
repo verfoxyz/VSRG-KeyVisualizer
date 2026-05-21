@@ -33,7 +33,7 @@ pub fn start_event_timer(
                             notes.push(BarNote {
                                 rdev_key_name: rdev_name.clone(),
                                 x: key_cfg.x, width: key_cfg.width,
-                                y: key_cfg.y + key_cfg.height, height: 0.0,
+                                y: key_cfg.y + key_cfg.height, height: 0,
                                 color: key_cfg.color_pressed.clone(), is_growing: true,
                             });
                             update_key_visual_state(&ui_weak, rdev_name, true);
@@ -50,9 +50,9 @@ pub fn start_event_timer(
 
             // 更新下落音符
             for note in notes.iter_mut() {
-                if note.is_growing { note.height += 6.0; } else { note.y += 6.0; }
+                if note.is_growing { note.height += 6; } else { note.y += 6; }
             }
-            let max_height = 200.0 + state.config.lock().unwrap().top_boundary as f32;
+            let max_height = 200 + state.config.lock().unwrap().top_boundary;
             notes.retain(|note| note.is_growing || (note.y - note.height) < max_height);
 
             if let Some(main_ui) = ui_weak.upgrade() {
@@ -73,12 +73,15 @@ fn handle_capture_event(event: &MyKeyEvent, state: &AppState) {
             return;
         }
 
+        let cfg = state.config.lock().unwrap();
+        //let key_spacing = cfg.key_margin_width as f32;  // 按键之间的边距
+        let outer_margin = 10.0;  // 外部边距（第一个按键距左边的距离）
         let mut tmp = state.temp_config.lock().unwrap();
-        let spawn_x = (tmp.keys.len() * 90) as f32 + 10.0;
+        let spawn_x = outer_margin as i32 + (tmp.keys.len() as i32) * 80;
         tmp.keys.push(KeyConfig {
             rdev_key_name: rdev_name.clone(),
             display_name: rdev_name.replace("Key", ""),
-            x: spawn_x, y: 10.0, width: 80.0, height: 80.0,
+            x: spawn_x, y: 10, width: 80, height: 80,
             color_pressed: "#4A90E2".into(),
         });
 
