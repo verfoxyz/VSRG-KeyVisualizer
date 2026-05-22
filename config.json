@@ -40,6 +40,15 @@
       "width": 80,
       "height": 80,
       "color_pressed": "#4A90E2"
+    },
+    {
+      "rdev_key_name": "Space",
+      "display_name": "Space",
+      "x": 410,
+      "y": 10,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2"
     }
   ]
 }

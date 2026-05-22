@@ -2,7 +2,7 @@
 use crossbeam_channel::Receiver;
 use slint::ComponentHandle;
 use crate::state::AppState;
-use crate::{MyKeyEvent, BarNote, KeyConfig, render_key_models, render_bar_models, update_key_visual_state};
+use crate::{MyKeyEvent, BarNote, KeyConfig, create_model, update_key_visual_state};
 
 /// 高层语义事件总线 
 pub enum AppEvent {
@@ -44,7 +44,7 @@ impl MacroRecorder {
                 tmp.keys.push(key.clone());
 
                 if let Some(s) = state.settings_holder.lock().unwrap().as_ref().and_then(|s| s.upgrade()) {
-                    s.set_root_preview_keys(render_key_models(&tmp));
+                    s.set_root_preview_keys(create_model(&tmp.keys));
                 }
                 key
             };
@@ -143,7 +143,7 @@ pub fn start_event_timer(
                     .unwrap_or(0)
                     + top_boundary;
                 notes.retain(|note| note.y < window_top_phys);
-                ui.set_bar_notes(render_bar_models(&notes));
+                ui.set_bar_notes(create_model(&notes));
             }
         },
     );

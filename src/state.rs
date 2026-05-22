@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use slint::Model;
 use crate::{
     AppConfig, BarNote, SettingsWindow, KeyCaptureDialog,
-    render_key_models,
+    create_model,
 };
 use crate::physics::MovementPipeline;
 
@@ -114,7 +114,7 @@ impl AppState {
                     *self.drag_offset.lock().unwrap() = (off_x, off_y);
 
                     // 回刷预览画布
-                    ui.set_root_preview_keys(render_key_models(&tmp));
+                    ui.set_root_preview_keys(create_model(&tmp.keys));
                 } else {
                     // 点击空白区域 -> 取消选中
                     ui.set_selected_index(-1);
@@ -192,7 +192,7 @@ impl AppState {
         ui: &SettingsWindow,
         tmp: &AppConfig,
     ) {
-        ui.set_root_preview_keys(render_key_models(tmp));
+        ui.set_root_preview_keys(create_model(&tmp.keys));
         ui.set_current_x(real_x);
         ui.set_current_y(real_y);
     }

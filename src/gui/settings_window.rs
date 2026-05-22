@@ -1,7 +1,7 @@
 // src/windows/settings_window.rs
 use crate::calculate_window_size;
 use crate::state::{AppState, UIAction};
-use crate::{KeyCaptureDialog, SettingsWindow, hex_str_to_color, render_key_models, save_config};
+use crate::{KeyCaptureDialog, SettingsWindow, hex_str_to_color, create_model, save_config};
 use slint::ComponentHandle;
 
 pub fn setup_settings_window(
@@ -18,7 +18,7 @@ pub fn setup_settings_window(
     settings.set_global_border_width(real_config.global_border_width);
     settings.set_global_border_color(hex_str_to_color(&real_config.global_border_color));
     settings.set_key_margin_width(real_config.key_margin_width);
-    settings.set_root_preview_keys(render_key_models(&real_config));
+    settings.set_root_preview_keys(create_model(&real_config.keys));
 
     *state.settings_holder.lock().unwrap() = Some(settings.as_weak());
 
@@ -93,7 +93,7 @@ pub fn setup_settings_window(
         }
         if let Some(s) = s_weak.upgrade() {
             s.set_selected_index(-1);
-            s.set_root_preview_keys(render_key_models(&tmp));
+            s.set_root_preview_keys(create_model(&tmp.keys));
         }
     });
 
@@ -109,7 +109,7 @@ pub fn setup_settings_window(
             if let Some(main_ui) = main_ui_weak.upgrade() {
                 let (w, h) = calculate_window_size(&real);
                 main_ui.window().set_size(slint::PhysicalSize::new(w as u32, h as u32));
-                main_ui.set_keys(render_key_models(&real));
+                main_ui.set_keys(create_model(&real.keys));
                 main_ui.set_global_border_width(real.global_border_width);
                 main_ui.set_global_border_color(hex_str_to_color(&real.global_border_color));
                 main_ui.set_key_margin_width(real.key_margin_width);

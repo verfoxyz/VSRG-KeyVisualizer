@@ -23,9 +23,9 @@ export component SettingsWindow inherits Window {
     in property <[KeyData]> root_preview_keys;
     in-out property <int> selected_index: -1;
 
-    // 单向状态注入属性
-    in property <int> current_x;
-    in property <int> current_y;
+    // 双向状态属性（SpinBox 双向绑定，Rust 端 set 更新）
+    in-out property <int> current_x;
+    in-out property <int> current_y;
     in-out property <int> current_w;
     in-out property <int> current_h;
     in-out property <string> current_color;
@@ -163,7 +163,7 @@ export component SettingsWindow inherits Window {
                     }
 
                     current_x_input := SpinBox {
-                        value: root.current_x;
+                        value <=> root.current_x;
                         minimum: -9999;
                         maximum: 9999;
                         enabled: root.selected_index != -1;
@@ -188,7 +188,7 @@ export component SettingsWindow inherits Window {
                     }
 
                     current_y_input := SpinBox {
-                        value: root.current_y;
+                        value <=> root.current_y;
                         minimum: -9999;
                         maximum: 9999;
                         enabled: root.selected_index != -1;
@@ -401,54 +401,41 @@ export component MainWindow inherits Window {
     in property <int> key_margin_width: 10;
     in property <int> window_width_px: 1200;
     in property <int> window_height_px: 500;
-    // ✨ 由 Rust 端注入：按键区域高度（物理 Y 坐标范围），用于定位按键 TouchArea
     in property <int> key_area_height: 100;
 
     callback request_close();
     callback gui_click(int, int);
     callback request_settings();
-    // ✨ 通知 Rust 端触发原生窗口拖拽
     callback gui_drag_window();
 
     property <length> window_height_lx: root.window_height_px * 1px;
-    // ✨ 按键区域在 Slint 坐标中的顶部位置
     property <length> key_area_top: root.window_height_lx - root.key_area_height * 1px;
 
     // =========================================================================
-    // 层级 0 (最底层)：点击穿透背景
-    // 黑色区(没有颜色也会穿透，可以注释)域通过 LWA_COLORKEY 透明化，实现 OS 级点击穿透
+    // 所有子元素平铺在根节点下（无全屏容器 Rectangle），
+    // 避免 Slint 局部脏矩形优化破坏 OS 级透明窗口的像素合成。
+    // keys.length 绑定确保几何依赖触发重绘。
     // =========================================================================
+
+    // 层级 0：黑色穿透背景 + 红色描边(测试用，正式版可删除)
     // Rectangle {
-    //     border-width: 2px;      // 描边宽度
-    //     border-color: #ff0000;  // 描边颜色 (红色)
+    //     border-width: 2px + (root.keys.length - root.keys.length) * 1px;
+    //     border-color: #ff0000;
     //     width: 100%;
-    //     height: max(0px, root.key_area_top);
+    //     height: window_height_lx;
     //     background: #000000;
     // }
 
-    // =========================================================================
-    // 层级 1 (底层)：瀑布流音符
-    // 纯视觉呈现，无交互逻辑
-    // =========================================================================
-    Rectangle {
-        width: 100%;
-        height: 100%;
-        clip: true;
-
-        for bar in root.bar_notes: Rectangle {
-            x: bar.x;
-            y: root.window_height_lx - bar.y - bar.h;
-            width: bar.w;
-            height: bar.h;
-            background: bar.pressed_color;
-        }
+    // 层级 1：瀑布流音符（clip 由内层 Rectangle 自己负责）
+    for bar in root.bar_notes: Rectangle {
+        x: bar.x;
+        y: root.window_height_lx - bar.y - bar.h;
+        width: bar.w;
+        height: bar.h;
+        background: bar.pressed_color;
     }
 
-    // =========================================================================
-    // 层级 2 (中间层)：按键纯渲染层
-    // 只负责绘制，没有任何交互逻辑。注意：没有包裹的全窗口 Rectangle，
-    // 这样瀑布区（未被按键覆盖的区域）没有任何 Slint 元素，鼠标事件可穿透
-    // =========================================================================
+    // 层级 2：按键
     for key_info in root.keys: Rectangle {
         x: key_info.x;
         y: root.window_height_lx - key_info.y - key_info.h;
@@ -466,32 +453,26 @@ export component MainWindow inherits Window {
         }
     }
 
-    // =========================================================================
-    // 层级 3 (唯一的交互层)：只覆盖按键区域
-    // =========================================================================
+    // 层级 3：交互 TouchArea（仅覆盖按键区域）
     TouchArea {
         x: 0px;
         y: root.key_area_top;
         width: 100%;
         height: root.key_area_height * 1px;
 
-        // 统一在此处理逻辑
         pointer-event(event) => {
-            // 处理左键点击
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
                 root.gui_click(
                     Math.round(self.pressed-x / 1px),
                     Math.round((root.window_height_lx - root.key_area_top - self.pressed-y) / 1px)
                 );
             }
-            // 如果你也想在按键区实现右键关闭（可选）
             else if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                 root.request_close();
             }
         }
 
         moved => {
-            // 只有当鼠标在按键区内按下并移动时，触发窗口拖拽
             if (self.pressed) {
                 root.gui_drag_window();
             }

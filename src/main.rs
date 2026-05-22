@@ -47,12 +47,6 @@ enum MyKeyEvent {
     Release { rdev_name: String },
 }
 
-fn apply_snapping(value: i32, grid_size: i32) -> i32 {
-    if grid_size <= 0 {
-        return value;
-    }
-    ((value as f32 / grid_size as f32).round() as i32) * grid_size
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct KeyConfig {
@@ -129,64 +123,59 @@ fn save_config(config: &AppConfig) {
     fs::write("config.json", content).expect("无法写入配置文件");
 }
 
+/// 默认按键颜色（当配置文件中颜色解析失败时使用）
+const DEFAULT_KEY_COLOR: u32 = 0x4A90E2;
+
+/// 将十六进制颜色字符串（含或不含 # 前缀）解析为 slint::Color
 fn hex_str_to_color(hex_str: &str) -> slint::Color {
     let hex_str = hex_str.trim_start_matches('#');
-    u32::from_str_radix(hex_str, 16)
-        .map(|rgb| slint::Color::from_argb_encoded(rgb | 0xFF000000))
-        .unwrap_or(slint::Color::from_argb_u8(255, 85, 85, 85))
+    let rgb = u32::from_str_radix(hex_str, 16).unwrap_or(DEFAULT_KEY_COLOR);
+    slint::Color::from_argb_encoded(rgb | 0xFF000000)
 }
 
-fn render_bar_models(notes: &[BarNote]) -> ModelRc<KeyData> {
-    let mut bar_data_list = Vec::new();
-    for note in notes {
-        let hex_str = note.color.trim_start_matches('#');
-        let parsed_color = u32::from_str_radix(hex_str, 16)
-            .map(|rgb| slint::Color::from_argb_encoded(rgb | 0xFF000000))
-            .unwrap_or(slint::Color::from_argb_u8(255, 255, 255, 255));
+/// 统一转换 trait：将不同类型转换为 KeyData
+trait ToKeyData {
+    fn to_key_data(&self) -> KeyData;
+}
 
-        bar_data_list.push(KeyData {
-            name: note.rdev_key_name.clone().into(),
+impl ToKeyData for BarNote {
+    fn to_key_data(&self) -> KeyData {
+        KeyData {
+            name: self.rdev_key_name.clone().into(),
             display_name: "".into(),
             is_pressed: false,
-            x: note.x as f32,
-            y: note.y as f32,
-            w: note.width as f32,
-            h: note.height as f32,
-            pressed_color: parsed_color,
-            color_hex: note.color.clone().into(),
+            x: self.x as f32,
+            y: self.y as f32,
+            w: self.width as f32,
+            h: self.height as f32,
+            pressed_color: hex_str_to_color(&self.color),
+            color_hex: self.color.clone().into(),
             selected: false,
-        });
+        }
     }
-    Rc::new(VecModel::from(bar_data_list)).into()
 }
 
-fn render_key_models(config: &AppConfig) -> slint::ModelRc<KeyData> {
-    tracing::debug!(
-        "[DEBUG] render_key_models: 开始渲染，按键数量: {}",
-        config.keys.len()
-    );
-    let key_models: Vec<KeyData> = config
-        .keys
-        .iter()
-        .map(|k| KeyData {
-            name: k.rdev_key_name.clone().into(),
-            display_name: k.display_name.clone().into(),
+impl ToKeyData for KeyConfig {
+    fn to_key_data(&self) -> KeyData {
+        KeyData {
+            name: self.rdev_key_name.clone().into(),
+            display_name: self.display_name.clone().into(),
             is_pressed: false,
-            x: k.x as f32,
-            y: k.y as f32,
-            w: k.width as f32,
-            h: k.height as f32,
-            color_hex: k.color_pressed.clone().into(),
-            pressed_color: slint::Color::from_argb_encoded(
-                u32::from_str_radix(k.color_pressed.trim_start_matches('#'), 16)
-                    .unwrap_or(0x4A90E2)
-                    | 0xFF000000,
-            ),
+            x: self.x as f32,
+            y: self.y as f32,
+            w: self.width as f32,
+            h: self.height as f32,
+            pressed_color: hex_str_to_color(&self.color_pressed),
+            color_hex: self.color_pressed.clone().into(),
             selected: false,
-        })
-        .collect();
+        }
+    }
+}
 
-    slint::ModelRc::from(std::rc::Rc::new(slint::VecModel::from(key_models)))
+/// 通用渲染函数：将任意实现了 `ToKeyData` 的切片转换为 `ModelRc<KeyData>`
+fn create_model<T: ToKeyData>(items: &[T]) -> ModelRc<KeyData> {
+    let data: Vec<KeyData> = items.iter().map(|i| i.to_key_data()).collect();
+    Rc::new(VecModel::from(data)).into()
 }
 
 /// 线程安全的 HWND 包装（HWND 本身是 `*mut c_void`，不自动实现 Send）
@@ -202,8 +191,8 @@ static MAIN_HWND: std::sync::Mutex<Option<SafeHWND>> = std::sync::Mutex::new(Non
 fn make_window_clickthrough(window: &winit::window::Window) {
     use windows::Win32::Foundation::{COLORREF, HWND};
     use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongW, HWND_TOPMOST, LWA_COLORKEY, SetLayeredWindowAttributes,
-        SetWindowLongW, SetWindowPos, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        GWL_EXSTYLE, GetWindowLongW, HWND_TOPMOST, LWA_COLORKEY, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+        SWP_NOMOVE, SWP_NOSIZE, SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos,
         WS_EX_LAYERED,
     };
 
@@ -288,19 +277,32 @@ fn main() {
     let (tx, rx) = channel::unbounded::<MyKeyEvent>();
     let state = AppState::new(load_config());
 
-    let ui = MainWindow::new().unwrap();
+    let ui = match MainWindow::new() {
+        Ok(window) => window,
+        Err(e) => {
+            eprintln!("无法创建主窗口: {}", e);
+            std::process::exit(1);
+        }
+    };
 
     // 1. 初始化 UI 全局表现属性
     {
-        let cfg = state.config.lock().unwrap();
+        let cfg = match state.config.lock() {
+            Ok(guard) => guard,
+            Err(e) => {
+                eprintln!("致命错误：获取配置锁失败: {}", e);
+                std::process::exit(1); 
+            }
+        };
         let (width, height) = calculate_window_size(&cfg);
+        //转换单位
         ui.set_window_width_px(width);
         ui.set_window_height_px(height);
         ui.set_global_border_width(cfg.global_border_width);
         ui.set_global_border_color(hex_str_to_color(&cfg.global_border_color));
         ui.set_key_margin_width(cfg.key_margin_width);
         ui.set_top_boundary_px(cfg.top_boundary);
-        ui.set_keys(render_key_models(&cfg));
+        ui.set_keys(create_model(&cfg.keys));
         // 计算按键区域高度：最大物理 Y 范围 + 底部边距
         let max_bottom = cfg.keys.iter().map(|k| k.y + k.height).max().unwrap_or(0);
         let key_area_h = if max_bottom > 0 {
