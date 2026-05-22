@@ -1,5 +1,5 @@
 [package]
-name = "KeyTick"
+name = "VSRG-KeyVisualizer"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,7 +9,7 @@ winit = "0.30.13"
 i-slint-backend-winit = "1.16.1"
 crossbeam-channel = "0.5.15"
 serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 lazy_static = "1.5.0"
 raw-window-handle = "0.6.2"
 tracing = "0.1.44"
@@ -31,3 +31,9 @@ windows = { version = "0.62.2", features = [
 
 [build-dependencies]
 slint-build = "1.16.1"
+
+
+# 双重保险：通过 Cargo 配置也设置 Windows 子系统
+# 主生效方式在 main.rs 中通过 #![windows_subsystem = "windows"] 实现
+[target.'cfg(windows)']
+rustflags = ["-C", "link-arg=/SUBSYSTEM:WINDOWS"]

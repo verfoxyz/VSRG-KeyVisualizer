@@ -1,3 +1,6 @@
+// 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 mod state;
 mod gui {
     pub mod settings_window;
@@ -21,6 +24,8 @@ use tracing;
 //use tracing_subscriber::fmt; // 或者 use tracing_subscriber;
 use crate::ri_table::win_vkey_to_rdev_str;
 use state::AppState;
+
+
 slint::include_modules!();
 
 fn default_top_boundary() -> i32 {
@@ -270,7 +275,7 @@ fn create_settings_window(
 /// ====================主函数====================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .init();
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
@@ -566,7 +571,7 @@ fn init_platform_input_listener(tx: channel::Sender<MyKeyEvent>, _ui: &MainWindo
             }
 
             // 2. 注册窗口类
-            let class_name: Vec<u16> = "KeyTick_Sink_Class\0".encode_utf16().collect();
+            let class_name: Vec<u16> = "VSRG_KeyVisualizer_Sink_Class\0".encode_utf16().collect();
             let wnd_class = WNDCLASSW {
                 lpfnWndProc: Some(wnd_proc),
                 hInstance: HINSTANCE(std::ptr::null_mut()),

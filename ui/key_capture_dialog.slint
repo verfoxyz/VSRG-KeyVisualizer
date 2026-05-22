@@ -1,0 +1,27 @@
+export component KeyCaptureDialog inherits Window {
+    no-frame: true;
+    title: "Key Capture";
+    background: #2b2b2b;
+    width: 300px;
+    height: 150px;
+    always-on-top: true;
+    callback key-recorded(string, string);
+    in-out property <string> detected-key: "Please press the key you wish to bind...";
+    VerticalLayout {
+        alignment: center;
+        spacing: 10px;
+        Text {
+            text: root.detected-key;
+            font-size: 16px;
+            color: white;
+            horizontal-alignment: center;
+        }
+
+        Text {
+            text: "(Press ESC to cancel)";
+            font-size: 12px;
+            color: #aaaaaa;
+            horizontal-alignment: center;
+        }
+    }
+}

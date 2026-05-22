@@ -1,0 +1,96 @@
+import { KeyData } from "key_data.slint";
+
+export component MainWindow inherits Window {
+    title: "VSRG-KeyVisualizer";
+    width: root.window_width_px * 1px;
+    height: root.window_height_px * 1px;
+    background: transparent;
+    no-frame: true;
+    always-on-top: true;
+
+    in property <[KeyData]> keys;
+    in property <[KeyData]> bar_notes;
+    in property <int> top_boundary_px: 300;
+    in property <int> global_border_width: 1;
+    in property <color> global_border_color: #555555;
+    in property <int> key_margin_width: 10;
+    in property <int> window_width_px: 1200;
+    in property <int> window_height_px: 500;
+    in property <int> key_area_height: 100;
+
+    callback request_close();
+    callback gui_click(int, int);
+    callback request_settings();
+    callback gui_drag_window();
+
+    property <length> window_height_lx: root.window_height_px * 1px;
+    property <length> key_area_top: root.window_height_lx - root.key_area_height * 1px;
+
+    // =========================================================================
+    // 所有子元素平铺在根节点下（无全屏容器 Rectangle），
+    // 避免 Slint 局部脏矩形优化破坏 OS 级透明窗口的像素合成。
+    // keys.length 绑定确保几何依赖触发重绘。
+    // =========================================================================
+
+    // 层级 0：黑色穿透背景 + 红色描边(测试用，正式版可删除)
+    // Rectangle {
+    //     border-width: 2px + (root.keys.length - root.keys.length) * 1px;
+    //     border-color: #ff0000;
+    //     width: 100%;
+    //     height: window_height_lx;
+    //     background: #000000;
+    // }
+
+    // 层级 1：瀑布流音符（clip 由内层 Rectangle 自己负责）
+    for bar in root.bar_notes: Rectangle {
+        x: bar.x;
+        y: root.window_height_lx - bar.y - bar.h;
+        width: bar.w;
+        height: bar.h;
+        background: bar.pressed_color;
+    }
+
+    // 层级 2：按键
+    for key_info in root.keys: Rectangle {
+        x: key_info.x;
+        y: root.window_height_lx - key_info.y - key_info.h;
+        width: key_info.w;
+        height: key_info.h;
+        background: key_info.is_pressed ? key_info.pressed_color : #33333330;
+        border-width: root.global_border_width * 1px;
+        border-color: root.global_border_color;
+        Text {
+            text: key_info.display_name;
+            color: white;
+            font-size: 18px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+        }
+    }
+
+    // 层级 3：交互 TouchArea（仅覆盖按键区域）
+    TouchArea {
+        x: 0px;
+        y: root.key_area_top;
+        width: 100%;
+        height: root.key_area_height * 1px;
+
+        pointer-event(event) => {
+            if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
+                root.gui_click(
+                    Math.round(self.pressed-x / 1px),
+                    Math.round((root.window_height_lx - root.key_area_top - self.pressed-y) / 1px)
+                );
+            }
+            else if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
+                root.request_close();
+            }
+        }
+
+        moved => {
+            if (self.pressed) {
+                root.gui_drag_window();
+            }
+        }
+    }
+}

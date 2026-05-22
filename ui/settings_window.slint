@@ -1,0 +1,346 @@
+import { Button, LineEdit, SpinBox } from "std-widgets.slint";
+import { KeyData } from "key_data.slint";
+
+export component SettingsWindow inherits Window {
+    max-width: 1000px;
+    min-height: 600px;
+    title: "VSRG-KeyVisualizer config";
+    background: #252525;
+    always-on-top: true;
+
+    in property <[KeyData]> root_preview_keys;
+    in-out property <int> selected_index: -1;
+
+    // 双向状态属性（SpinBox 双向绑定，Rust 端 set 更新）
+    in-out property <int> current_x;
+    in-out property <int> current_y;
+    in-out property <int> current_w;
+    in-out property <int> current_h;
+    in-out property <string> current_color;
+    in-out property <bool> capturing_mode: false;
+    in-out property <int> global_grid_size: 4;
+    in-out property <int> global_top_boundary: 0;
+    in-out property <int> global_border_width: 1;
+    in-out property <color> global_border_color: #ffffff;
+    in-out property <int> key_margin_width: 4;
+
+    // 暴露纯单向的事件意图通知接口
+    callback handle_canvas_pointer_down(int, int, bool);
+    callback update_key_position(int, int, int, int, int);
+    callback update_key_position_x(int, int, int, int);
+    callback update_key_position_y(int, int, int, int);
+    callback grid_size_edited(int);
+    callback top_boundary_edited(int);
+    callback key_margin_edited(int);
+    callback add_new_key();
+    callback save_config();
+    callback update_key_size(int, int, int);
+    callback update_key_color(int, string);
+    callback delete_key(int);
+
+    VerticalLayout {
+        padding: 15px;
+        spacing: 15px;
+        Text {
+            text: "Location Preview (Drag to move, Click to select)";
+            color: #aaa;
+        }
+
+        preview_box := Rectangle {
+            min-height: 180px;
+            min-width: 560px;
+            background: #1a1a1a;
+            clip: true;
+
+            // 1. 将 TouchArea 铺满整个画布，作为全局鼠标事件拦截器
+            canvas_ta := TouchArea {
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        debug("[Canvas TA] Pointer Down at:", Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
+                        // 将 raw 画布坐标发给 Rust 端做 hit-test 选中
+                        root.handle_canvas_pointer_down(
+                            Math.round(self.pressed-x / 1px), 
+                            Math.round(self.pressed-y / 1px),
+                            event.modifiers.control);
+                    }
+                    if (event.kind == PointerEventKind.up) {
+                        debug("[Canvas TA] Pointer Up");
+                    }
+                }
+
+                moved => {
+                    if (root.selected_index >= 0 && self.pressed) {
+                        // 发送 raw 画布坐标，Rust 端减去拖拽偏移计算目标位置
+                        root.update_key_position(
+                            root.selected_index,
+                            Math.round(self.mouse-x / 1px),
+                            Math.round(self.mouse-y / 1px),
+                            Math.round(preview_box.width / 1px),
+                            Math.round(preview_box.height / 1px));
+                    }
+                }
+            }
+
+            // 2. 具体的按键渲染（仅负责呈现，内部不再放置带有移动逻辑的 TouchArea）
+            for key[i] in root.root_preview_keys: Rectangle {
+                x: key.x - root.key_margin_width * 1px;
+                y: key.y - root.key_margin_width * 1px;
+                width: key.w + root.key_margin_width * 2px;
+                height: key.h + root.key_margin_width * 2px;
+                clip: true;
+
+                border-width: root.selected_index == i ? 3px : 1px;
+                border-color: root.selected_index == i ? #00FFCC : #555555;
+                background: root.selected_index == i ? #4A90E240 : transparent;
+
+                Rectangle {
+                    x: root.key_margin_width * 1px;
+                    y: root.key_margin_width * 1px;
+                    width: key.w;
+                    height: key.h;
+                    border-width: 1px;
+                    border-color: #222222;
+                    background: root.selected_index == i ? #4A90E2 : #444;
+
+                    Text {
+                        text: key.display_name;
+                        color: white;
+                        x: (parent.width - self.width) / 2;
+                        y: (parent.height - self.height) / 2;
+                    }
+                }
+            }
+
+            Button {
+                text: "+ Add Key";
+                x: parent.width - 110px;
+                y: parent.height - 40px;
+                clicked => {
+                    root.add_new_key();
+                }
+            }
+        }
+
+        Text {
+            text: "Parameter Config";
+            color: #aaa;
+        }
+
+        FocusScope {
+            width: 180px;
+            VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+                alignment: start;
+
+                Text {
+                    text: "Key Properties";
+                    font-size: 14px;
+                    color: #EEEEEE;
+                    font-weight: 700;
+                }
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
+
+                    Text {
+                        text: "Location X:";
+                        color: #AAAAAA;
+                        vertical-alignment: center;
+                    }
+
+                    current_x_input := SpinBox {
+                        value <=> root.current_x;
+                        minimum: -9999;
+                        maximum: 9999;
+                        enabled: root.selected_index != -1;
+                        edited => {
+                            root.update-key_position_x(
+                        root.selected_index,
+                        self.value,
+                        Math.round(preview_box.width / 1px),
+                        Math.round(preview_box.height / 1px));
+                        }
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 4px;
+                    alignment: center;
+
+                    Text {
+                        text: "Location Y:";
+                        color: #AAAAAA;
+                        vertical-alignment: center;
+                    }
+
+                    current_y_input := SpinBox {
+                        value <=> root.current_y;
+                        minimum: -9999;
+                        maximum: 9999;
+                        enabled: root.selected_index != -1;
+                        edited => {
+                            root.update-key_position_y(
+                        root.selected_index,
+                        self.value,
+                        Math.round(preview_box.width / 1px),
+                        Math.round(preview_box.height / 1px));
+                        }
+                    }
+                }
+            }
+        }
+
+        GridLayout {
+            spacing: 8px;
+            Row {
+                Text {
+                    text: "Width W:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                current_w_input := SpinBox {
+                    value: root.current_w;
+                    enabled: root.selected_index != -1;
+                    minimum: 1;
+                    edited => {
+                        root.current_w = self.value;
+                        root.update_key_size(root.selected_index, self.value, root.current_h);
+                    }
+                }
+
+                Text {
+                    text: "Height H:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                current_h_input := SpinBox {
+                    value: root.current_h;
+                    enabled: root.selected_index != -1;
+                    minimum: 1;
+                    edited => {
+                        root.current_h = self.value;
+                        root.update_key_size(root.selected_index, root.current_w, self.value);
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Pressed Color:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                current_col_input := LineEdit {
+                    text: root.current_color;
+                    enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_color = self.text;
+                        root.update_key_color(root.selected_index, self.text);
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Top Disappear Boundary (px):";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.global_top_boundary;
+                    minimum: 0;
+                    maximum: 800;
+                    step-size: 10;
+                    edited => {
+                        root.global_top_boundary = self.value;
+                        root.top_boundary_edited(self.value);
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Global Grid Snapping (px):";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.global_grid_size;
+                    minimum: 1;
+                    maximum: 50;
+                    step-size: 1;
+                    edited => {
+                        root.global_grid_size = self.value;
+                        root.grid_size_edited(self.value);
+                        //root.sync_inputs_to_memory();
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Key Margin Width (px):";
+                    vertical-alignment: center;
+                    color: #fff;
+                }
+
+                SpinBox {
+                    value: root.key_margin_width;
+                    minimum: 0;
+                    maximum: 100;
+                    step-size: 1;
+                    edited => {
+                        root.key_margin_width = self.value;
+                        root.key_margin_edited(self.value);
+                    }
+                }
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 15px;
+            Button {
+                text: "Delete Selected Key";
+                enabled: root.selected_index != -1;
+                clicked => {
+                    root.delete_key(root.selected_index);
+                    root.selected_index = -1;
+                }
+            }
+
+            Button {
+                text: "Save Config & Close";
+                primary: true;
+                clicked => {
+                    root.save_config();
+                }
+            }
+        }
+    }
+
+    TouchArea {
+        visible: root.capturing_mode;
+        width: parent.width;
+        height: parent.height;
+        x: 0;
+        y: 0;
+        enabled: root.capturing_mode;
+    }
+
+    // function sync_inputs_to_memory() {
+    //     root.update_key_config(
+    //         root.selected_index,
+    //         root.current_x,
+    //         root.current_y,
+    //         root.current_w,
+    //         root.current_h,
+    //         root.current_color);
+    // }
+}

@@ -5,25 +5,25 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug executable 'KeyTick'",
+            "name": "Debug executable 'VSRG-KeyVisualizer'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "run",
-                    "--bin=KeyTick"
+                    "--bin=VSRG-KeyVisualizer"
                 ]
             },
             "args": []
         },
         {
-            "name": "Debug unit tests in executable 'KeyTick'",
+            "name": "Debug unit tests in executable 'VSRG-KeyVisualizer'",
             "type": "lldb",
             "request": "launch",
             "cargo": {
                 "args": [
                     "test",
-                    "--bin=KeyTick"
+                    "--bin=VSRG-KeyVisualizer"
                 ]
             }
         }
