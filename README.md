@@ -1,3 +1,5 @@
+[English](README-EN.md)|中文
+---
 # VSRG-KeyVisualizer
 
 VSRG-KeyVisualizer 是一个轻量级、实时键盘按键显示工具，旨在为音游（VSRG）玩家提供直观的按键可视化反馈。
