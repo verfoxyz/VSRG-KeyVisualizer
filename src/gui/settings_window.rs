@@ -13,7 +13,6 @@ pub fn setup_settings_window(
     *state.temp_config.lock().unwrap() = real_config.clone();
 
     // 1. 初始化渲染视图参数
-    settings.set_global_grid_size(real_config.grid_size);
     settings.set_global_top_boundary(real_config.top_boundary);
     settings.set_global_border_width(real_config.global_border_width);
     settings.set_global_border_color(hex_str_to_color(&real_config.global_border_color));
@@ -48,8 +47,6 @@ pub fn setup_settings_window(
     });
 
     // 3. 全局基础配置保存与退出交互
-    let tc = state.temp_config.clone();
-    settings.on_grid_size_edited(move |sz| tc.lock().unwrap().grid_size = sz);
     let tc = state.temp_config.clone();
     settings.on_top_boundary_edited(move |bd| tc.lock().unwrap().top_boundary = bd);
     let tc = state.temp_config.clone();

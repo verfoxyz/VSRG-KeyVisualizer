@@ -31,10 +31,6 @@ slint::include_modules!();
 fn default_top_boundary() -> i32 {
     0
 }
-fn default_grid_size() -> i32 {
-    5
-}
-
 #[derive(Clone, Debug)]
 struct BarNote {
     rdev_key_name: String,
@@ -75,8 +71,6 @@ fn default_margin_width() -> i32 {
 }
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct AppConfig {
-    #[serde(default = "default_grid_size")]
-    grid_size: i32,
     #[serde(default = "default_top_boundary")]
     top_boundary: i32,
 
@@ -94,7 +88,6 @@ impl Default for AppConfig {
     fn default() -> Self {
         Self {
             top_boundary: default_top_boundary(),
-            grid_size: default_grid_size(),
             global_border_width: default_border_width(),
             global_border_color: default_border_color(),
             key_margin_width: default_margin_width(),

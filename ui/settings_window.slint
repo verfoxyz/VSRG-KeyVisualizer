@@ -18,7 +18,6 @@ export component SettingsWindow inherits Window {
     in-out property <int> current_h;
     in-out property <string> current_color;
     in-out property <bool> capturing_mode: false;
-    in-out property <int> global_grid_size: 4;
     in-out property <int> global_top_boundary: 0;
     in-out property <int> global_border_width: 1;
     in-out property <color> global_border_color: #ffffff;
@@ -29,7 +28,6 @@ export component SettingsWindow inherits Window {
     callback update_key_position(int, int, int, int, int);
     callback update_key_position_x(int, int, int, int);
     callback update_key_position_y(int, int, int, int);
-    callback grid_size_edited(int);
     callback top_boundary_edited(int);
     callback key_margin_edited(int);
     callback add_new_key();
@@ -260,26 +258,6 @@ export component SettingsWindow inherits Window {
                     edited => {
                         root.global_top_boundary = self.value;
                         root.top_boundary_edited(self.value);
-                    }
-                }
-            }
-
-            Row {
-                Text {
-                    text: "Global Grid Snapping (px):";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                SpinBox {
-                    value: root.global_grid_size;
-                    minimum: 1;
-                    maximum: 50;
-                    step-size: 1;
-                    edited => {
-                        root.global_grid_size = self.value;
-                        root.grid_size_edited(self.value);
-                        //root.sync_inputs_to_memory();
                     }
                 }
             }
