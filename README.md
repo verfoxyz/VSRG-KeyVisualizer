@@ -2,11 +2,13 @@
 ---
 # VSRG-KeyVisualizer
 
-![主窗口](MD-PNG/image.png)
-
-![配置窗口](MD-PNG/image-1.png)
-
-![新增按键](MD-PNG/image-2.png)
+<table>
+  <tr>
+    <td align="center"><img src="MD-PNG/image.png" width="150" /><br>主窗口</td>
+    <td align="center"><img src="MD-PNG/image1.png" width="150" /><br>配置窗口</td>
+    <td align="center"><img src="MD-PNG/image2.png" width="150" /><br>新增按键</td>
+  </tr>
+</table>
 
 VSRG-KeyVisualizer 是一个轻量级、实时键盘按键显示工具，旨在为音游（VSRG）玩家提供直观的按键可视化反馈。
 
