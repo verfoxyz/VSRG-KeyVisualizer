@@ -1,5 +1,5 @@
 // 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
-//#![cfg_attr(windows, windows_subsystem = "windows")]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod state;
 mod gui {
@@ -77,6 +77,9 @@ fn default_key_color() -> String {
 fn default_flow_direction() -> i32 {
     0
 }
+fn default_flow_speed() -> i32 {
+    4
+}
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct AppConfig {
     #[serde(default = "default_top_boundary")]
@@ -92,6 +95,9 @@ struct AppConfig {
     global_key_color: String,
     #[serde(default = "default_flow_direction")]
     flow_direction: i32,
+
+    #[serde(default = "default_flow_speed")]
+    flow_speed: i32,
 
     #[serde(default)]
     window_x: Option<i32>,
@@ -110,6 +116,7 @@ impl Default for AppConfig {
             key_margin_width: default_margin_width(),
             global_key_color: default_key_color(),
             flow_direction: default_flow_direction(),
+            flow_speed: default_flow_speed(),
             window_x: None,
             window_y: None,
             keys: vec![KeyConfig {
@@ -419,7 +426,7 @@ fn create_settings_window(
 /// ======================================== MAIN ========================================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .init();
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
@@ -464,6 +471,11 @@ fn main() {
             100
         };
         ui.set_key_area_height(key_area_h);
+
+        // 根据日志级别控制调试覆盖层显示
+        // tracing_subscriber 已设置 with_max_level，判断是否 >= DEBUG
+        let is_debug = tracing::level_filters::LevelFilter::current() >= tracing::level_filters::LevelFilter::DEBUG;
+        ui.set_show_debug_overlay(is_debug);
     }
 
     // 2. 绑定主窗体单击/双击检测事件

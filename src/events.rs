@@ -68,15 +68,16 @@ impl LiveVisualizer {
                         note.is_growing = false;
                     }
                     let (c_w, c_h) = calculate_window_size(&cfg);
+                    let speed = cfg.flow_speed.max(1);
                     let (start_x, start_y, note_w, note_h, vx, vy) = match cfg.flow_direction {
                         // ↑ 上：画布底部 = 0，从按键底部（= c_h - key_cfg.y）向上生长
-                        1 => (key_cfg.x, c_h - key_cfg.y - key_cfg.height, key_cfg.width, 0, 0, -4),
+                        1 => (key_cfg.x, c_h - key_cfg.y - key_cfg.height, key_cfg.width, 0, 0, -speed),
                         // ← 左：从按键左侧（= c_w - key.w - key_cfg.x）向左生长
-                        2 => (c_w - key_cfg.x - key_cfg.width, key_cfg.y, 0, key_cfg.height, -4, 0),
+                        2 => (c_w - key_cfg.x - key_cfg.width, key_cfg.y, 0, key_cfg.height, -speed, 0),
                         // → 右：从按键右侧（= key.x + key.w）向右生长
-                        3 => (key_cfg.x + key_cfg.width, key_cfg.y, 0, key_cfg.height, 4, 0),
+                        3 => (key_cfg.x + key_cfg.width, key_cfg.y, 0, key_cfg.height, speed, 0),
                         // ↓ 下：从按键底部（= key.y + key.h）向下生长（默认）
-                        _ => (key_cfg.x, key_cfg.y + key_cfg.height, key_cfg.width, 0, 0, 4),
+                        _ => (key_cfg.x, key_cfg.y + key_cfg.height, key_cfg.width, 0, 0, speed),
                     };
                     notes.push(BarNote {
                         rdev_key_name: rdev_name.clone(),
@@ -136,22 +137,23 @@ pub fn start_event_timer(
             // 2. 音符瀑布流物理生长步进循环
             if let Some(ui) = ui_weak.upgrade() {
                 let cfg = state.config.lock().unwrap();
+                let speed = cfg.flow_speed.max(1);
                 for note in notes.iter_mut() {
                     if note.is_growing {
                         if cfg.flow_direction == 2 || cfg.flow_direction == 3 {
                             // ← 或 → 方向：宽度生长
-                            note.width += 4;
+                            note.width += speed;
                             if cfg.flow_direction == 2 {
                                 // ←：向左生长，x 左移
-                                note.x -= 4;
+                                note.x -= speed;
                             }
                         } else if cfg.flow_direction == 1 {
                             // ↑：向上生长，y 上移
-                            note.height += 4;
-                            note.y -= 4;
+                            note.height += speed;
+                            note.y -= speed;
                         } else {
                             // ↓：向下生长（默认）
-                            note.height += 4;
+                            note.height += speed;
                         }
                     } else {
                         // 根据瀑布流方向移动

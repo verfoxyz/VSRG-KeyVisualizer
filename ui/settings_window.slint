@@ -28,6 +28,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> global_key_opacity_percent: 100;
     in-out property <int> key_margin_width: 4;
     in-out property <int> flow_direction: 0;
+    in-out property <int> flow_speed: 4;
 
     // 暴露纯单向的事件意图通知接口
     callback handle_canvas_pointer_down(int, int, bool);
@@ -45,6 +46,7 @@ export component SettingsWindow inherits Window {
     callback key_color_edited(string);
     callback key_opacity_edited(int);
     callback flow_direction_edited(int);
+    callback flow_speed_edited(int);
     callback delete_key(int);
 
     VerticalLayout {
@@ -328,6 +330,25 @@ export component SettingsWindow inherits Window {
                     edited => {
                         root.flow_direction = self.value;
                         root.flow_direction_edited(self.value);
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Flow Speed (px/tick):";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.flow_speed;
+                    minimum: 1;
+                    maximum: 50;
+                    step-size: 1;
+                    edited => {
+                        root.flow_speed = self.value;
+                        root.flow_speed_edited(self.value);
                     }
                 }
             }

@@ -20,6 +20,9 @@ export component MainWindow inherits Window {
     in property <int> key_area_height: 100;
     // 瀑布流方向：0=下 1=上 2=左 3=右
     in property <int> flow_direction: 0;
+    // 调试覆盖层：由 Rust 端根据日志级别控制（DEBUG 级别显示）
+    // 或通过 Lint 宏 cfg(feature = "debug_overlay") 在编译时彻底移除
+    in property <bool> show_debug_overlay: false;
 
     callback request_close();
     callback gui_click(int, int);
@@ -58,8 +61,9 @@ export component MainWindow inherits Window {
     // keys.length 绑定确保几何依赖触发重绘。
     // =========================================================================
     //层级 0：调试用矩形（显示画布尺寸）
+    // visible 由 Rust 端通过 show_debug_overlay 控制，仅 DEBUG 日志级别时显示
     Rectangle {
-        // 显式绑定到根窗口的宽度和高度
+        visible: root.show_debug_overlay;
         width: root.canvas_width;
         height: root.canvas_height;
         

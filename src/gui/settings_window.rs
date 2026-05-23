@@ -27,6 +27,7 @@ pub fn setup_settings_window(
     settings.set_global_key_color_hex(key_color_rgb.into());
     settings.set_global_key_opacity_percent(key_opacity_pct);
     settings.set_flow_direction(real_config.flow_direction);
+    settings.set_flow_speed(real_config.flow_speed);
 
     *state.settings_holder.lock().unwrap() = Some(settings.as_weak());
 
@@ -77,6 +78,8 @@ pub fn setup_settings_window(
 
     let tc = state.temp_config.clone();
     settings.on_flow_direction_edited(move |dir| tc.lock().unwrap().flow_direction = dir);
+    let tc = state.temp_config.clone();
+    settings.on_flow_speed_edited(move |speed| tc.lock().unwrap().flow_speed = speed);
 
     let state_add = state.clone();
     let s_weak = settings.as_weak();
