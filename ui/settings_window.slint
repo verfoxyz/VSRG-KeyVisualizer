@@ -126,11 +126,13 @@ export component SettingsWindow inherits Window {
 
         FocusScope {
             width: 180px;
+
             VerticalLayout {
                 padding: 12px;
                 spacing: 8px;
                 alignment: start;
 
+                // 标题
                 Text {
                     text: "Key Properties";
                     font-size: 14px;
@@ -138,52 +140,93 @@ export component SettingsWindow inherits Window {
                     font-weight: 700;
                 }
 
+                // 外层水平布局：分为左右两列
                 HorizontalLayout {
-                    spacing: 4px;
-                    alignment: center;
+                    spacing: 8px;
 
-                    Text {
-                        text: "Location X:";
-                        color: #AAAAAA;
-                        vertical-alignment: center;
-                    }
+                    // --- 左侧列：X 和 Y ---
+                    VerticalLayout {
+                        spacing: 4px;
 
-                    current_x_input := SpinBox {
-                        value <=> root.current_x;
-                        minimum: -9999;
-                        maximum: 9999;
-                        enabled: root.selected_index != -1;
-                        edited => {
-                            root.update-key_position_x(
-                        root.selected_index,
-                        self.value,
-                        Math.round(preview_box.width / 1px),
-                        Math.round(preview_box.height / 1px));
+                        HorizontalLayout {
+                            spacing: 4px;
+                            alignment: center;
+
+                            Text { text: "X:"; color: #AAAAAA; vertical-alignment: center; }
+
+                            current_x_input := SpinBox {
+                                value <=> root.current_x;
+                                minimum: -9999;
+                                maximum: 9999;
+                                enabled: root.selected_index != -1;
+                                edited => {
+                                    root.update-key_position_x(
+                                        root.selected_index,
+                                        self.value,
+                                        Math.round(preview_box.width / 1px),
+                                        Math.round(preview_box.height / 1px));
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            alignment: center;
+
+                            Text { text: "Y:"; color: #AAAAAA; vertical-alignment: center; }
+
+                            current_y_input := SpinBox {
+                                value <=> root.current_y;
+                                minimum: -9999;
+                                maximum: 9999;
+                                enabled: root.selected_index != -1;
+                                edited => {
+                                    root.update-key_position_y(
+                                        root.selected_index,
+                                        self.value,
+                                        Math.round(preview_box.width / 1px),
+                                        Math.round(preview_box.height / 1px));
+                                }
+                            }
                         }
                     }
-                }
 
-                HorizontalLayout {
-                    spacing: 4px;
-                    alignment: center;
+                    // --- 右侧列：W 和 H ---
+                    VerticalLayout {
+                        spacing: 4px;
 
-                    Text {
-                        text: "Location Y:";
-                        color: #AAAAAA;
-                        vertical-alignment: center;
-                    }
+                        HorizontalLayout {
+                            spacing: 4px;
+                            alignment: center;
 
-                    current_y_input := SpinBox {
-                        value <=> root.current_y;
-                        minimum: -9999;
-                        maximum: 9999;
-                        enabled: root.selected_index != -1;
-                        edited => {
-                            root.update-key_position_y(
-                        root.selected_index,
-                        self.value,
-                        Math.round(preview_box.width / 1px),
-                        Math.round(preview_box.height / 1px));
+                            Text { text: "W:"; color: #AAAAAA; vertical-alignment: center; }
+
+                            current_w_input := SpinBox {
+                                value: root.current_w;
+                                enabled: root.selected_index != -1;
+                                minimum: 1;
+                                edited => {
+                                    root.current_w = self.value;
+                                    root.update_key_size(root.selected_index, self.value, root.current_h);
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 4px;
+                            alignment: center;
+
+                            Text { text: "H:"; color: #AAAAAA; vertical-alignment: center; }
+
+                            current_h_input := SpinBox {
+                                value: root.current_h;
+                                enabled: root.selected_index != -1;
+                                minimum: 1;
+                                edited => {
+                                    root.current_h = self.value;
+                                    root.update_key_size(root.selected_index, root.current_w, self.value);
+                                }
+                            }
                         }
                     }
                 }
@@ -192,40 +235,6 @@ export component SettingsWindow inherits Window {
 
         GridLayout {
             spacing: 8px;
-            Row {
-                Text {
-                    text: "Width W:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                current_w_input := SpinBox {
-                    value: root.current_w;
-                    enabled: root.selected_index != -1;
-                    minimum: 1;
-                    edited => {
-                        root.current_w = self.value;
-                        root.update_key_size(root.selected_index, self.value, root.current_h);
-                    }
-                }
-
-                Text {
-                    text: "Height H:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                current_h_input := SpinBox {
-                    value: root.current_h;
-                    enabled: root.selected_index != -1;
-                    minimum: 1;
-                    edited => {
-                        root.current_h = self.value;
-                        root.update_key_size(root.selected_index, root.current_w, self.value);
-                    }
-                }
-            }
-
             Row {
                 Text {
                     text: "Pressed Color:";
