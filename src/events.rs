@@ -2,7 +2,7 @@
 use crossbeam_channel::Receiver;
 use slint::ComponentHandle;
 use crate::state::AppState;
-use crate::{MyKeyEvent, BarNote, KeyConfig, create_model, update_key_visual_state};
+use crate::{MyKeyEvent, BarNote, KeyConfig, calculate_window_size, create_model, update_key_visual_state};
 
 /// 高层语义事件总线 
 pub enum AppEvent {
@@ -39,7 +39,7 @@ impl MacroRecorder {
                     y: new_y,
                     width: 80,
                     height: 80,
-                    color_pressed: "#4A90E2".into(),
+                    color_pressed: "#4A90E2FF".into(),
                 };
                 tmp.keys.push(key.clone());
 
@@ -67,14 +67,27 @@ impl LiveVisualizer {
                     for note in notes.iter_mut().filter(|n| n.rdev_key_name == rdev_name && n.is_growing) {
                         note.is_growing = false;
                     }
+                    let (c_w, c_h) = calculate_window_size(&cfg);
+                    let (start_x, start_y, note_w, note_h, vx, vy) = match cfg.flow_direction {
+                        // ↑ 上：画布底部 = 0，从按键底部（= c_h - key_cfg.y）向上生长
+                        1 => (key_cfg.x, c_h - key_cfg.y - key_cfg.height, key_cfg.width, 0, 0, -4),
+                        // ← 左：从按键左侧（= c_w - key.w - key_cfg.x）向左生长
+                        2 => (c_w - key_cfg.x - key_cfg.width, key_cfg.y, 0, key_cfg.height, -4, 0),
+                        // → 右：从按键右侧（= key.x + key.w）向右生长
+                        3 => (key_cfg.x + key_cfg.width, key_cfg.y, 0, key_cfg.height, 4, 0),
+                        // ↓ 下：从按键底部（= key.y + key.h）向下生长（默认）
+                        _ => (key_cfg.x, key_cfg.y + key_cfg.height, key_cfg.width, 0, 0, 4),
+                    };
                     notes.push(BarNote {
                         rdev_key_name: rdev_name.clone(),
-                        x: key_cfg.x,
-                        width: key_cfg.width,
-                        y: key_cfg.y + key_cfg.height,
-                        height: 0,
+                        x: start_x,
+                        width: note_w,
+                        y: start_y,
+                        height: note_h,
                         color: key_cfg.color_pressed.clone(),
                         is_growing: true,
+                        vel_x: vx,
+                        vel_y: vy,
                     });
                     update_key_visual_state(&ui.as_weak(), rdev_name.clone(), true);
                 }
@@ -123,26 +136,42 @@ pub fn start_event_timer(
             // 2. 音符瀑布流物理生长步进循环
             if let Some(ui) = ui_weak.upgrade() {
                 let cfg = state.config.lock().unwrap();
-                let top_boundary = cfg.top_boundary;
-
-                let speed = 4;
-
                 for note in notes.iter_mut() {
                     if note.is_growing {
-                        note.height += speed;
+                        if cfg.flow_direction == 2 || cfg.flow_direction == 3 {
+                            // ← 或 → 方向：宽度生长
+                            note.width += 4;
+                            if cfg.flow_direction == 2 {
+                                // ←：向左生长，x 左移
+                                note.x -= 4;
+                            }
+                        } else if cfg.flow_direction == 1 {
+                            // ↑：向上生长，y 上移
+                            note.height += 4;
+                            note.y -= 4;
+                        } else {
+                            // ↓：向下生长（默认）
+                            note.height += 4;
+                        }
                     } else {
-                        // 非生长阶段：音符向上移动（物理 Y 递增 = 向上）
-                        note.y += speed;
+                        // 根据瀑布流方向移动
+                        note.x += note.vel_x;
+                        note.y += note.vel_y;
                     }
                 }
 
-                // 音符物理 Y 超过此值时移除 = 音符底部移出窗口顶部
-                let window_top_phys = cfg.keys.iter()
-                    .map(|k| k.y + k.height)
-                    .max()
-                    .unwrap_or(0)
-                    + top_boundary;
-                notes.retain(|note| note.y < window_top_phys);
+                // 根据方向移除超出边界的音符（使用画布尺寸动态计算阈值）
+                let cw = ui.get_window_width_px();
+                let ch = ui.get_window_height_px();
+                if cfg.flow_direction == 1 {
+                    notes.retain(|n| n.y + n.height >= -ch / 2);
+                } else if cfg.flow_direction == 2 {
+                    notes.retain(|n| n.x + n.width >= -cw / 2);
+                } else if cfg.flow_direction == 3 {
+                    notes.retain(|n| n.x <= cw + cw / 2);
+                } else {
+                    notes.retain(|n| n.y <= ch + ch / 2);
+                }
                 ui.set_bar_notes(create_model(&notes));
             }
         },

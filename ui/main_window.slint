@@ -13,50 +13,73 @@ export component MainWindow inherits Window {
     in property <int> top_boundary_px: 300;
     in property <int> global_border_width: 1;
     in property <color> global_border_color: #555555;
+    in property <color> global_key_color: #333333;
     in property <int> key_margin_width: 10;
     in property <int> window_width_px: 1200;
     in property <int> window_height_px: 500;
     in property <int> key_area_height: 100;
+    // 瀑布流方向：0=下 1=上 2=左 3=右
+    in property <int> flow_direction: 0;
 
     callback request_close();
     callback gui_click(int, int);
     callback request_settings();
     callback gui_drag_window();
 
-    property <length> window_height_lx: root.window_height_px * 1px;
-    property <length> key_area_top: root.window_height_lx - root.key_area_height * 1px;
+    property <length> canvas_width: root.window_width_px * 1px;
+    property <length> canvas_height: root.window_height_px * 1px;
+    property <length> key_area_top: root.canvas_height - root.key_area_height * 1px;
+
+    // =========================================================================
+    // 根据 flow_direction 将虚拟坐标转为屏幕像素坐标
+    // =========================================================================
+    function key-x(key: KeyData) -> length {
+        if root.flow_direction == 2 {
+            // 方向 2（←）：从右向左，x 锚定在右侧
+            return root.canvas_width - key.w - root.canvas_width * key.anchor_ratio_x;
+        }
+        return root.canvas_width * key.anchor_ratio_x;
+    }
+    function key-y(key: KeyData) -> length {
+        if root.flow_direction == 1 {
+            // 方向 1（↑）：从下向上，y 锚定在底部
+            return root.canvas_height - key.h - root.canvas_height * key.anchor_ratio_y;
+        }
+        return root.canvas_height * key.anchor_ratio_y;
+    }
+    // 所有方向的 notes 都使用直接坐标渲染（与 direction 0 相同坐标系）
+    // 坐标转换在 events.rs 中创建 BarNote 时完成
+    function note-x(bar: KeyData) -> length { return bar.x; }
+    function note-y(bar: KeyData) -> length { return bar.y; }
 
     // =========================================================================
     // 所有子元素平铺在根节点下（无全屏容器 Rectangle），
     // 避免 Slint 局部脏矩形优化破坏 OS 级透明窗口的像素合成。
     // keys.length 绑定确保几何依赖触发重绘。
     // =========================================================================
-
-    // 层级 0：黑色穿透背景 + 红色描边(测试用，正式版可删除)
-    // Rectangle {
-    //     border-width: 2px + (root.keys.length - root.keys.length) * 1px;
-    //     border-color: #ff0000;
-    //     width: 100%;
-    //     height: window_height_lx;
-    //     background: #000000;
-    // }
-
-    // 层级 1：瀑布流音符（clip 由内层 Rectangle 自己负责）
-    for bar in root.bar_notes: Rectangle {
-        x: bar.x;
-        y: root.window_height_lx - bar.y - bar.h;
-        width: bar.w;
-        height: bar.h;
-        background: bar.pressed_color;
+    //层级 0：调试用矩形（显示画布尺寸）
+    Rectangle {
+        // 显式绑定到根窗口的宽度和高度
+        width: root.canvas_width;
+        height: root.canvas_height;
+        
+        border-width: 1px;
+        border-color: #ff0000;
+        //background: #000000;
+        init => {
+            debug("[MainWindow] canvas_width:", root.canvas_width / 1px, "px, canvas_height:", root.canvas_height / 1px, "px");
+        }
     }
+    // Debug: 输出 canvas_width 和 canvas_height（使用 Slint 内置 debug 函数）
+    
 
-    // 层级 2：按键
+    // 层级 1：按键（通过比例锚点响应画布尺寸变化）
     for key_info in root.keys: Rectangle {
-        x: key_info.x;
-        y: root.window_height_lx - key_info.y - key_info.h;
+        x: root.key-x(key_info);
+        y: root.key-y(key_info);
         width: key_info.w;
         height: key_info.h;
-        background: key_info.is_pressed ? key_info.pressed_color : #33333330;
+        background: key_info.is_pressed ? key_info.pressed_color : root.global_key_color;
         border-width: root.global_border_width * 1px;
         border-color: root.global_border_color;
         Text {
@@ -68,25 +91,34 @@ export component MainWindow inherits Window {
         }
     }
 
-    // 层级 3：交互 TouchArea（仅覆盖按键区域）
+    // 层级 2：瀑布流音符（在按键上方渲染，确保不被按键遮挡）
+    for bar in root.bar_notes: Rectangle {
+        x: root.note-x(bar);
+        y: root.note-y(bar);
+        width: bar.w;
+        height: bar.h;
+        background: bar.pressed_color;
+    }
+
+    // 层级 3：交互 TouchArea（覆盖整个画布以支持所有方向拖拽）
     TouchArea {
         x: 0px;
-        y: root.key_area_top;
+        y: 0px;
         width: 100%;
-        height: root.key_area_height * 1px;
+        height: 100%;
 
         pointer-event(event) => {
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
                 root.gui_click(
                     Math.round(self.pressed-x / 1px),
-                    Math.round((root.window_height_lx - root.key_area_top - self.pressed-y) / 1px)
+                    Math.round(self.pressed-y / 1px)
                 );
             }
             else if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
                 root.request_close();
             }
+            
         }
-
         moved => {
             if (self.pressed) {
                 root.gui_drag_window();

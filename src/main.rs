@@ -1,5 +1,5 @@
 // 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
-#![cfg_attr(windows, windows_subsystem = "windows")]
+//#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod state;
 mod gui {
@@ -40,6 +40,8 @@ struct BarNote {
     height: i32,
     color: String,
     is_growing: bool,
+    vel_x: i32,   // 瀑布流方向 X 速度
+    vel_y: i32,   // 瀑布流方向 Y 速度
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +71,12 @@ fn default_border_color() -> String {
 fn default_margin_width() -> i32 {
     10
 }
+fn default_key_color() -> String {
+    "#333333".into()
+}
+fn default_flow_direction() -> i32 {
+    0
+}
 #[derive(Serialize, Deserialize, Clone, Debug)]
 struct AppConfig {
     #[serde(default = "default_top_boundary")]
@@ -80,6 +88,15 @@ struct AppConfig {
     global_border_color: String,
     #[serde(default = "default_margin_width")]
     key_margin_width: i32,
+    #[serde(default = "default_key_color")]
+    global_key_color: String,
+    #[serde(default = "default_flow_direction")]
+    flow_direction: i32,
+
+    #[serde(default)]
+    window_x: Option<i32>,
+    #[serde(default)]
+    window_y: Option<i32>,
 
     keys: Vec<KeyConfig>,
 }
@@ -91,6 +108,10 @@ impl Default for AppConfig {
             global_border_width: default_border_width(),
             global_border_color: default_border_color(),
             key_margin_width: default_margin_width(),
+            global_key_color: default_key_color(),
+            flow_direction: default_flow_direction(),
+            window_x: None,
+            window_y: None,
             keys: vec![KeyConfig {
                 rdev_key_name: "KeyA".into(),
                 display_name: "A".into(),
@@ -98,7 +119,7 @@ impl Default for AppConfig {
                 y: 10, // 物理 Y：按键顶部距窗口底部 10px
                 width: 80,
                 height: 80,
-                color_pressed: "#4A90E2".into(),
+                color_pressed: "#4A90E2FF".into(),
             }],
         }
     }
@@ -124,11 +145,83 @@ fn save_config(config: &AppConfig) {
 /// 默认按键颜色（当配置文件中颜色解析失败时使用）
 const DEFAULT_KEY_COLOR: u32 = 0x4A90E2;
 
-/// 将十六进制颜色字符串（含或不含 # 前缀）解析为 slint::Color
+/// 辅助：将单个 hex 字符重复两次组成一个字节（如 'A' → 0xAA）
+fn hex_dup(c: u8) -> u8 {
+    let v = (c as char).to_digit(16).unwrap_or(0) as u8;
+    v * 16 + v
+}
+
+/// 将十六进制颜色字符串解析为 slint::Color
+/// 支持 #RGB、#RRGGBB、#RRGGBBAA 三种格式
 fn hex_str_to_color(hex_str: &str) -> slint::Color {
-    let hex_str = hex_str.trim_start_matches('#');
-    let rgb = u32::from_str_radix(hex_str, 16).unwrap_or(DEFAULT_KEY_COLOR);
-    slint::Color::from_argb_encoded(rgb | 0xFF000000)
+    let clean: String = hex_str.trim_start_matches('#')
+        .chars().filter(|c| c.is_ascii_hexdigit()).collect();
+
+    let (r, g, b, a) = match clean.len() {
+        // #RGB -> #RRGGBB（每位重复）
+        3 => {
+            let b = clean.as_bytes();
+            (hex_dup(b[0]), hex_dup(b[1]), hex_dup(b[2]), 255)
+        }
+        // #RRGGBB
+        6 => (
+            u8::from_str_radix(&clean[0..2], 16).unwrap_or(0),
+            u8::from_str_radix(&clean[2..4], 16).unwrap_or(0),
+            u8::from_str_radix(&clean[4..6], 16).unwrap_or(0),
+            255
+        ),
+        // #RRGGBBAA（取前 8 位）
+        8.. => (
+            u8::from_str_radix(&clean[0..2], 16).unwrap_or(0),
+            u8::from_str_radix(&clean[2..4], 16).unwrap_or(0),
+            u8::from_str_radix(&clean[4..6], 16).unwrap_or(0),
+            u8::from_str_radix(&clean[6..8], 16).unwrap_or(255)
+        ),
+        // 输入无效或为空 → 返回默认颜色（不透明）
+        _ => (
+            ((DEFAULT_KEY_COLOR >> 16) & 0xFF) as u8,
+            ((DEFAULT_KEY_COLOR >> 8) & 0xFF) as u8,
+            (DEFAULT_KEY_COLOR & 0xFF) as u8,
+            255
+        ),
+    };
+
+    slint::Color::from_argb_encoded(
+        ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
+    )
+}
+
+/// 将 #RRGGBB 和透明度百分比(0-100)合并为 #RRGGBBAA
+fn merge_alpha(hex_rgb: &str, opacity_pct: i32) -> String {
+    let clean: String = hex_rgb.trim_start_matches('#')
+        .chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    // 取前 6 位 hex，不足右补 '0'
+    let hex6 = if clean.len() >= 6 {
+        clean[..6].to_string()
+    } else {
+        format!("{:0<6}", clean)
+    };
+    let a = ((opacity_pct.max(1).min(100) * 255) / 100).max(1).min(255);
+    format!("#{}{:02X}", hex6, a)
+}
+
+/// 从 #RRGGBBAA 中提取 #RRGGBB 和透明度百分比(0-100)
+fn split_alpha(hex_with_alpha: &str) -> (String, i32) {
+    let clean: String = hex_with_alpha.trim_start_matches('#')
+        .chars().filter(|c| c.is_ascii_hexdigit()).collect();
+    let len = clean.len();
+    if len >= 8 {
+        // 完整 #RRGGBBAA
+        let rgb = format!("#{}", &clean[..6]);
+        let a = u8::from_str_radix(&clean[6..8], 16).unwrap_or(255);
+        let pct = ((a as i32) * 100 / 255).clamp(0, 100);
+        (rgb, pct)
+    } else if len >= 6 {
+        // 只有 #RRGGBB，无透明度
+        (format!("#{}", &clean[..6]), 100)
+    } else {
+        ("#333333".into(), 100)
+    }
 }
 
 /// 统一转换 trait：将不同类型转换为 KeyData
@@ -146,6 +239,8 @@ impl ToKeyData for BarNote {
             y: self.y as f32,
             w: self.width as f32,
             h: self.height as f32,
+            anchor_ratio_x: 0.0,
+            anchor_ratio_y: 0.0,
             pressed_color: hex_str_to_color(&self.color),
             color_hex: self.color.clone().into(),
             selected: false,
@@ -163,10 +258,24 @@ impl ToKeyData for KeyConfig {
             y: self.y as f32,
             w: self.width as f32,
             h: self.height as f32,
+            anchor_ratio_x: 0.0,
+            anchor_ratio_y: 0.0,
             pressed_color: hex_str_to_color(&self.color_pressed),
             color_hex: self.color_pressed.clone().into(),
             selected: false,
         }
+    }
+}
+
+/// 按键专用：为 KeyData 模型计算比例锚点（相对于画布宽高）
+fn compute_key_ratios(model: &ModelRc<KeyData>, canvas_w: f32, canvas_h: f32) {
+    let cw = canvas_w.max(1.0);
+    let ch = canvas_h.max(1.0);
+    for i in 0..model.row_count() {
+        let mut d = model.row_data(i).unwrap();
+        d.anchor_ratio_x = d.x / cw;
+        d.anchor_ratio_y = d.y / ch;
+        model.set_row_data(i, d);
     }
 }
 
@@ -227,29 +336,70 @@ fn make_window_clickthrough(window: &winit::window::Window) {
 }
 
 fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
-    // 宽度：按键中最右边的位置 + 边距（无上限限制）
-    let width = if config.keys.is_empty() {
-        1200
+    let (width, height) = if config.keys.is_empty() {
+        (1200, 500)
     } else {
         let max_right = config.keys.iter().map(|k| k.x + k.width).max().unwrap_or(0);
-        max_right + config.key_margin_width
-    };
+        let max_bottom = config.keys.iter().map(|k| k.y + k.height).max().unwrap_or(0);
 
-    // 高度 = 最低按键底部物理 Y + top_boundary（顶部留白区域）
-    // key.y = 按键顶部物理 Y（从底部向上），按键底部 = key.y + key.h
-    let height = if config.keys.is_empty() {
-        500
-    } else {
-        let max_bottom = config
-            .keys
-            .iter()
-            .map(|k| k.y + k.height)
-            .max()
-            .unwrap_or(0);
-        max_bottom + config.top_boundary
+        // 基础尺寸：按键布局占用的最小矩形
+        let base_w = max_right + config.key_margin_width;
+        let base_h = max_bottom + config.key_margin_width;
+
+        match config.flow_direction {
+            // ↓ 向下：高度增加 top_boundary 用于音符向下流动
+            0 => (base_w, base_h + config.top_boundary),
+            // ↑ 向上：高度增加 top_boundary 用于音符向上流动
+            1 => (base_w, base_h + config.top_boundary),
+            // ← 向左：宽度增加 top_boundary 用于音符向左流动
+            2 => (base_w + config.top_boundary, base_h),
+            // → 向右：宽度增加 top_boundary 用于音符向右流动
+            3 => (base_w + config.top_boundary, base_h),
+            _ => (base_w, base_h + config.top_boundary),
+        }
     };
 
     (width, height)
+}
+
+/// 从 AppConfig 恢复窗口位置（含多屏边界检测）
+fn restore_window_position(winit_window: &winit::window::Window, cfg: &AppConfig) {
+    let (saved_x, saved_y) = match (cfg.window_x, cfg.window_y) {
+        (Some(x), Some(y)) => (x, y),
+        _ => { // 无保存记录，居中显示
+            if let Some(monitor) = winit_window.primary_monitor() {
+                let size = monitor.size();
+                let win_size = winit_window.outer_size();
+                let cx = (size.width.saturating_sub(win_size.width) / 2) as i32;
+                let cy = (size.height.saturating_sub(win_size.height) / 2) as i32;
+                winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(cx, cy));
+            }
+            return;
+        }
+    };
+
+    // 多屏边界检测：检查保存的 (x,y) 是否在某个显示器的边界内
+    let is_on_any_monitor = winit_window.available_monitors().any(|m| {
+        let pos = m.position();
+        let size = m.size();
+        saved_x >= pos.x
+            && saved_x < pos.x + size.width as i32
+            && saved_y >= pos.y
+            && saved_y < pos.y + size.height as i32
+    });
+
+    if is_on_any_monitor {
+        winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(saved_x, saved_y));
+    } else {
+        // 超出所有屏幕，回退到主显示器居中
+        if let Some(monitor) = winit_window.primary_monitor() {
+            let size = monitor.size();
+            let win_size = winit_window.outer_size();
+            let cx = (size.width.saturating_sub(win_size.width) / 2) as i32;
+            let cy = (size.height.saturating_sub(win_size.height) / 2) as i32;
+            winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(cx, cy));
+        }
+    }
 }
 
 /// 创建设置窗口并绑定回调
@@ -265,10 +415,11 @@ fn create_settings_window(
     None
 }
 
-/// ====================主函数====================
+/// ========================================主函数========================================
+/// ======================================== MAIN ========================================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
@@ -298,9 +449,13 @@ fn main() {
         ui.set_window_height_px(height);
         ui.set_global_border_width(cfg.global_border_width);
         ui.set_global_border_color(hex_str_to_color(&cfg.global_border_color));
+        ui.set_global_key_color(hex_str_to_color(&cfg.global_key_color));
         ui.set_key_margin_width(cfg.key_margin_width);
         ui.set_top_boundary_px(cfg.top_boundary);
-        ui.set_keys(create_model(&cfg.keys));
+        let key_model = create_model(&cfg.keys);
+        compute_key_ratios(&key_model, width as f32, height as f32);
+        ui.set_keys(key_model);
+        ui.set_flow_direction(cfg.flow_direction);
         // 计算按键区域高度：最大物理 Y 范围 + 底部边距
         let max_bottom = cfg.keys.iter().map(|k| k.y + k.height).max().unwrap_or(0);
         let key_area_h = if max_bottom > 0 {
@@ -357,7 +512,19 @@ fn main() {
             }
         }
     });
-    ui.on_request_close(|| slint::quit_event_loop().unwrap());
+    // 保存窗口位置
+    let state_for_close = state.clone();
+    let ui_weak_close = ui.as_weak();
+    ui.on_request_close(move || {
+        if let Some(ui) = ui_weak_close.upgrade() {
+            let pos = ui.window().position();
+            let mut cfg = state_for_close.config.lock().unwrap();
+            cfg.window_x = Some(pos.x);
+            cfg.window_y = Some(pos.y);
+            save_config(&cfg);
+        }
+        slint::quit_event_loop().unwrap();
+    });
 
     // 4. 开启后台高性能 Timer 渲染时钟驱动
     let _event_timer = events::start_event_timer(rx, state.clone(), ui.as_weak());
@@ -383,9 +550,8 @@ fn main() {
                     #[cfg(windows)]
                     make_window_clickthrough(&winit_window);
 
-                    winit_window.set_outer_position(winit::dpi::Position::Logical(
-                        winit::dpi::LogicalPosition::new(100.0, 100.0),
-                    ));
+                    // 恢复窗口位置（含多屏边界检测）
+                    restore_window_position(&winit_window, &state.config.lock().unwrap());
 
                     tracing::debug!("[setup] 窗口穿透属性已激活");
                 }

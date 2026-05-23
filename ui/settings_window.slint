@@ -3,7 +3,7 @@ import { KeyData } from "key_data.slint";
 
 export component SettingsWindow inherits Window {
     max-width: 1000px;
-    min-height: 600px;
+    min-height:700px;
     title: "VSRG-KeyVisualizer config";
     background: #252525;
     always-on-top: true;
@@ -17,11 +17,17 @@ export component SettingsWindow inherits Window {
     in-out property <int> current_w;
     in-out property <int> current_h;
     in-out property <string> current_color;
+    in-out property <int> current_opacity_percent: 100;
     in-out property <bool> capturing_mode: false;
     in-out property <int> global_top_boundary: 0;
     in-out property <int> global_border_width: 1;
     in-out property <color> global_border_color: #ffffff;
+    in-out property <string> global_border_color_hex: "#555555";
+    in-out property <color> global_key_color: #333333;
+    in-out property <string> global_key_color_hex: "#333333";
+    in-out property <int> global_key_opacity_percent: 100;
     in-out property <int> key_margin_width: 4;
+    in-out property <int> flow_direction: 0;
 
     // 暴露纯单向的事件意图通知接口
     callback handle_canvas_pointer_down(int, int, bool);
@@ -34,6 +40,11 @@ export component SettingsWindow inherits Window {
     callback save_config();
     callback update_key_size(int, int, int);
     callback update_key_color(int, string);
+    callback update_key_opacity(int, int);
+    callback border_color_edited(string);
+    callback key_color_edited(string);
+    callback key_opacity_edited(int);
+    callback flow_direction_edited(int);
     callback delete_key(int);
 
     VerticalLayout {
@@ -98,7 +109,7 @@ export component SettingsWindow inherits Window {
                     height: key.h;
                     border-width: 1px;
                     border-color: #222222;
-                    background: root.selected_index == i ? #4A90E2 : #444;
+                    background: root.selected_index == i ? #4A90E2 : root.global_key_color;
 
                     Text {
                         text: key.display_name;
@@ -250,6 +261,75 @@ export component SettingsWindow inherits Window {
                         root.update_key_color(root.selected_index, self.text);
                     }
                 }
+
+                Text {
+                    text: "Opacity %:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.current_opacity_percent;
+                    enabled: root.selected_index != -1;
+                    minimum: 1;
+                    maximum: 100;
+                    step-size: 5;
+                    edited => {
+                        root.current_opacity_percent = self.value;
+                        root.update_key_opacity(root.selected_index, self.value);
+                    }
+                }
+            }
+                        Row {
+                Text {
+                    text: "Key Color:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                key_col_input := LineEdit {
+                    text: root.global_key_color_hex;
+                    edited => {
+                        root.global_key_color_hex = self.text;
+                        root.key_color_edited(self.text);
+                    }
+                }
+
+                Text {
+                    text: "Opacity %:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.global_key_opacity_percent;
+                    minimum: 1;
+                    maximum: 100;
+                    step-size: 5;
+                    edited => {
+                        root.global_key_opacity_percent = self.value;
+                        root.key_opacity_edited(self.value);
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Flow Direction:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.flow_direction;
+                    minimum: 0;
+                    maximum: 3;
+                    step-size: 1;
+                    edited => {
+                        root.flow_direction = self.value;
+                        root.flow_direction_edited(self.value);
+                    }
+                }
             }
 
             Row {
@@ -286,6 +366,22 @@ export component SettingsWindow inherits Window {
                     edited => {
                         root.key_margin_width = self.value;
                         root.key_margin_edited(self.value);
+                    }
+                }
+            }
+
+            Row {
+                Text {
+                    text: "Border Color:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                border_col_input := LineEdit {
+                    text: root.global_border_color_hex;
+                    edited => {
+                        root.global_border_color_hex = self.text;
+                        root.border_color_edited(self.text);
                     }
                 }
             }

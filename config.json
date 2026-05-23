@@ -1,8 +1,12 @@
 {
-  "top_boundary": 300,
+  "top_boundary": 100,
   "global_border_width": 1,
   "global_border_color": "#555555",
   "key_margin_width": 10,
+  "global_key_color": "#333333",
+  "flow_direction": 2,
+  "window_x": 1028,
+  "window_y": 411,
   "keys": [
     {
       "rdev_key_name": "KeyA",
@@ -11,43 +15,16 @@
       "y": 10,
       "width": 80,
       "height": 80,
-      "color_pressed": "#4A90E2"
+      "color_pressed": "#4A90E2FF"
     },
     {
       "rdev_key_name": "KeyS",
       "display_name": "S",
-      "x": 110,
-      "y": 10,
+      "x": 10,
+      "y": 110,
       "width": 80,
       "height": 80,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "KeyD",
-      "display_name": "D",
-      "x": 210,
-      "y": 10,
-      "width": 80,
-      "height": 80,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "KeyF",
-      "display_name": "F",
-      "x": 310,
-      "y": 10,
-      "width": 80,
-      "height": 80,
-      "color_pressed": "#4A90E2"
-    },
-    {
-      "rdev_key_name": "Space",
-      "display_name": "Space",
-      "x": 410,
-      "y": 10,
-      "width": 80,
-      "height": 80,
-      "color_pressed": "#4A90E2"
+      "color_pressed": "#4A90E2FF"
     }
   ]
 }

@@ -106,7 +106,9 @@ impl AppState {
                     ui.set_current_y(tmp.keys[idx].y);
                     ui.set_current_w(tmp.keys[idx].width);
                     ui.set_current_h(tmp.keys[idx].height);
-                    ui.set_current_color(tmp.keys[idx].color_pressed.clone().into());
+                    let (rgb, pct) = crate::split_alpha(&tmp.keys[idx].color_pressed);
+                    ui.set_current_color(rgb.into());
+                    ui.set_current_opacity_percent(pct);
 
                     // 计算并保存拖拽偏移 = 点击坐标 - 按键左上角
                     let off_x = canvas_x - tmp.keys[idx].x;
