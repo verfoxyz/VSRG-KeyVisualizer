@@ -1,6 +1,13 @@
 English|[中文](README.md)
 ---
 # VSRG-KeyVisualizer
+
+![main window](MD-PNG/image.png)
+
+![configuration window](MD-PNG/image-1.png)
+
+![add key](MD-PNG/image-2.png)
+
 VSRG-KeyVisualizer is a lightweight, real-time keyboard key display tool designed to provide intuitive key visualization feedback for VSRG (Vertical Scrolling Rhythm Games) players. 
 ## Project Status
 Currently, it only supports Windows.
