@@ -84,7 +84,7 @@ pub fn setup_settings_window(
     let state_add = state.clone();
     let s_weak = settings.as_weak();
     settings.on_add_new_key(move || {
-        *state_add.capture_mode.lock().unwrap() = true;
+        state_add.capture_mode.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(s) = s_weak.upgrade() { s.set_capturing_mode(true); }
         let capture_dialog = KeyCaptureDialog::new().unwrap();
         capture_dialog.show().unwrap();
@@ -155,6 +155,16 @@ pub fn setup_settings_window(
             real.window_x = saved_x;
             real.window_y = saved_y;
             save_config(&real);
+
+            // 重建按键位置缓存
+            {
+                let mut cache = state_save.key_positions.lock().unwrap();
+                cache.clear();
+                for k in &real.keys {
+                    cache.push((k.rdev_key_name.clone(), k.x, k.y));
+                }
+            }
+            state_save.notes_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
 
             if let Some(main_ui) = main_ui_weak.upgrade() {
                 let (w, h) = calculate_window_size(&real);

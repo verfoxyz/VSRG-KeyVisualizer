@@ -437,6 +437,16 @@ fn main() {
     let (tx, rx) = channel::unbounded::<MyKeyEvent>();
     let state = AppState::new(load_config());
 
+    // 初始化按键位置缓存
+    {
+        let cfg = state.config.lock().unwrap();
+        let mut cache = state.key_positions.lock().unwrap();
+        cache.clear();
+        for k in &cfg.keys {
+            cache.push((k.rdev_key_name.clone(), k.x, k.y));
+        }
+    }
+
     let ui = match MainWindow::new() {
         Ok(window) => window,
         Err(e) => {

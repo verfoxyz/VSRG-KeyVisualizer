@@ -1,5 +1,5 @@
 // src/state.rs
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use slint::Model;
 use crate::{
     AppConfig, BarNote, SettingsWindow, KeyCaptureDialog,
@@ -42,7 +42,11 @@ pub struct AppState {
     pub config: Arc<Mutex<AppConfig>>,
     pub temp_config: Arc<Mutex<AppConfig>>,
     pub active_notes: Arc<Mutex<Vec<BarNote>>>,
-    pub capture_mode: Arc<Mutex<bool>>,
+    pub capture_mode: Arc<AtomicBool>,
+    /// 按键位置缓存: rdev_key_name → (x, y)，每帧热路径 O(1) 查找
+    pub key_positions: Arc<Mutex<Vec<(String, i32, i32)>>>,
+    /// 脏标记：notes 是否有变化需要重建 UI 模型
+    pub notes_dirty: Arc<AtomicBool>,
     pub dialog_holder: Arc<Mutex<Option<slint::Weak<KeyCaptureDialog>>>>,
     pub settings_holder: Arc<Mutex<Option<slint::Weak<SettingsWindow>>>>,
     /// 拖拽偏移：鼠标点击位置到按键左上角的偏移 (px)
@@ -55,7 +59,9 @@ impl AppState {
             config: Arc::new(Mutex::new(init_config)),
             temp_config: Arc::new(Mutex::new(AppConfig::default())),
             active_notes: Arc::new(Mutex::new(Vec::new())),
-            capture_mode: Arc::new(Mutex::new(false)),
+            capture_mode: Arc::new(AtomicBool::new(false)),
+            key_positions: Arc::new(Mutex::new(Vec::new())),
+            notes_dirty: Arc::new(AtomicBool::new(true)),
             dialog_holder: Arc::new(Mutex::new(None)),
             settings_holder: Arc::new(Mutex::new(None)),
             drag_offset: Arc::new(Mutex::new((0, 0))),
@@ -70,6 +76,8 @@ impl Clone for AppState {
             temp_config: Arc::clone(&self.temp_config),
             active_notes: Arc::clone(&self.active_notes),
             capture_mode: Arc::clone(&self.capture_mode),
+            key_positions: Arc::clone(&self.key_positions),
+            notes_dirty: Arc::clone(&self.notes_dirty),
             dialog_holder: Arc::clone(&self.dialog_holder),
             settings_holder: Arc::clone(&self.settings_holder),
             drag_offset: Arc::clone(&self.drag_offset),
