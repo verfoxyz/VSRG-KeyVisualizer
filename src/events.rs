@@ -180,8 +180,9 @@ pub fn start_event_timer(
                     }
                 });
 
-                // 脏标记：仅在有实际变化时重建 UI 模型
-                if local_dirty || state.notes_dirty.load(Ordering::Relaxed) {
+                // 有音符就每帧更新模型（音符位置/尺寸持续变化），
+                // 无音符时跳过重建以节省开销
+                if !notes.is_empty() || local_dirty || state.notes_dirty.load(Ordering::Relaxed) {
                     ui.set_bar_notes(create_model(&notes));
                     state.notes_dirty.store(false, Ordering::Relaxed);
                 }
