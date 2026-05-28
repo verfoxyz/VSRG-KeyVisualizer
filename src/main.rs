@@ -60,8 +60,11 @@ struct KeyConfig {
     width: i32,
     height: i32,
     color_pressed: String,
+    #[serde(default = "hundred")]
+    bar_width_percent: i32,
 }
 
+fn hundred() -> i32 { 100 }
 fn default_border_width() -> i32 {
     1
 }
@@ -127,6 +130,7 @@ impl Default for AppConfig {
                 width: 80,
                 height: 80,
                 color_pressed: "#4A90E2FF".into(),
+                bar_width_percent: 100,
             }],
         }
     }

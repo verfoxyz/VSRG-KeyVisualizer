@@ -34,19 +34,20 @@ export component MainWindow inherits Window {
     property <length> key_area_top: root.canvas_height - root.key_area_height * 1px;
 
     // =========================================================================
-    // 根据 flow_direction 将虚拟坐标转为屏幕像素坐标
+    // 按键坐标：所有方向使用统一左上角坐标系，永不翻转
+    // 瀑布流方向仅影响音符的生成位置和运动方向（events.rs 控制）
     // =========================================================================
     function key-x(key: KeyData) -> length {
         if root.flow_direction == 2 {
-            // 方向 2（←）：从右向左，x 锚定在右侧
-            return root.canvas_width - key.w - root.canvas_width * key.anchor_ratio_x;
+            // ←：按键右移 top_boundary，给音符向左流动的空间
+            return root.top_boundary_px * 1px + root.canvas_width * key.anchor_ratio_x;
         }
         return root.canvas_width * key.anchor_ratio_x;
     }
     function key-y(key: KeyData) -> length {
         if root.flow_direction == 1 {
-            // 方向 1（↑）：从下向上，y 锚定在底部
-            return root.canvas_height - key.h - root.canvas_height * key.anchor_ratio_y;
+            // ↑：按键下移 top_boundary，给音符向上流动的空间
+            return root.top_boundary_px * 1px + root.canvas_height * key.anchor_ratio_y;
         }
         return root.canvas_height * key.anchor_ratio_y;
     }
@@ -77,7 +78,17 @@ export component MainWindow inherits Window {
     // Debug: 输出 canvas_width 和 canvas_height（使用 Slint 内置 debug 函数）
     
 
-    // 层级 1：按键（通过比例锚点响应画布尺寸变化）
+    // 层级 1：瀑布流音符（在按键上方渲染，确保不被按键遮挡）
+    for bar in root.bar_notes: Rectangle {
+        x: root.note-x(bar);
+        y: root.note-y(bar);
+        width: bar.w;
+        height: bar.h;
+        background: bar.pressed_color;
+    }
+
+
+    // 层级 2：按键（通过比例锚点响应画布尺寸变化）
     for key_info in root.keys: Rectangle {
         x: root.key-x(key_info);
         y: root.key-y(key_info);
@@ -93,15 +104,6 @@ export component MainWindow inherits Window {
             x: (parent.width - self.width) / 2;
             y: (parent.height - self.height) / 2;
         }
-    }
-
-    // 层级 2：瀑布流音符（在按键上方渲染，确保不被按键遮挡）
-    for bar in root.bar_notes: Rectangle {
-        x: root.note-x(bar);
-        y: root.note-y(bar);
-        width: bar.w;
-        height: bar.h;
-        background: bar.pressed_color;
     }
 
     // 层级 3：交互 TouchArea（覆盖整个画布以支持所有方向拖拽）

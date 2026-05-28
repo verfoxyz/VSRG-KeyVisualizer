@@ -109,6 +109,7 @@ impl AppState {
                     let (rgb, pct) = crate::split_alpha(&tmp.keys[idx].color_pressed);
                     ui.set_current_color(rgb.into());
                     ui.set_current_opacity_percent(pct);
+                    ui.set_current_bar_width_percent(tmp.keys[idx].bar_width_percent);
 
                     // 计算并保存拖拽偏移 = 点击坐标 - 按键左上角
                     let off_x = canvas_x - tmp.keys[idx].x;

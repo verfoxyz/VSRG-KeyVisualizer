@@ -2,7 +2,7 @@
 use crossbeam_channel::Receiver;
 use slint::ComponentHandle;
 use crate::state::AppState;
-use crate::{MyKeyEvent, BarNote, KeyConfig, calculate_window_size, create_model, update_key_visual_state};
+use crate::{MyKeyEvent, BarNote, KeyConfig, create_model, update_key_visual_state};
 
 /// 高层语义事件总线 
 pub enum AppEvent {
@@ -40,6 +40,7 @@ impl MacroRecorder {
                     width: 80,
                     height: 80,
                     color_pressed: "#4A90E2FF".into(),
+                    bar_width_percent: 100,
                 };
                 tmp.keys.push(key.clone());
 
@@ -67,17 +68,20 @@ impl LiveVisualizer {
                     for note in notes.iter_mut().filter(|n| n.rdev_key_name == rdev_name && n.is_growing) {
                         note.is_growing = false;
                     }
-                    let (c_w, c_h) = calculate_window_size(&cfg);
                     let speed = cfg.flow_speed.max(1);
+                    // 根据按键各自的 bar_width_percent 计算实际瀑布流条宽度/厚度
+                    let pct = key_cfg.bar_width_percent.max(10).min(100);
+                    let bar_w = key_cfg.width * pct / 100;   // 垂直方向：条宽度
+                    let bar_h = key_cfg.height * pct / 100;  // 水平方向：条厚度
                     let (start_x, start_y, note_w, note_h, vx, vy) = match cfg.flow_direction {
-                        // ↑ 上：画布底部 = 0，从按键底部（= c_h - key_cfg.y）向上生长
-                        1 => (key_cfg.x, c_h - key_cfg.y - key_cfg.height, key_cfg.width, 0, 0, -speed),
-                        // ← 左：从按键左侧（= c_w - key.w - key_cfg.x）向左生长
-                        2 => (c_w - key_cfg.x - key_cfg.width, key_cfg.y, 0, key_cfg.height, -speed, 0),
+                        // ↑ 上：从按键顶部向上生长（按键已下移 top_boundary）
+                        1 => (key_cfg.x, key_cfg.y + cfg.top_boundary, bar_w, 0, 0, -speed),
+                        // ← 左：从按键左侧向左生长（按键已右移 top_boundary）
+                        2 => (key_cfg.x + cfg.top_boundary, key_cfg.y, 0, bar_h, -speed, 0),
                         // → 右：从按键右侧（= key.x + key.w）向右生长
-                        3 => (key_cfg.x + key_cfg.width, key_cfg.y, 0, key_cfg.height, speed, 0),
+                        3 => (key_cfg.x + key_cfg.width, key_cfg.y, 0, bar_h, speed, 0),
                         // ↓ 下：从按键底部（= key.y + key.h）向下生长（默认）
-                        _ => (key_cfg.x, key_cfg.y + key_cfg.height, key_cfg.width, 0, 0, speed),
+                        _ => (key_cfg.x, key_cfg.y + key_cfg.height, bar_w, 0, 0, speed),
                     };
                     notes.push(BarNote {
                         rdev_key_name: rdev_name.clone(),
@@ -174,6 +178,32 @@ pub fn start_event_timer(
                 } else {
                     notes.retain(|n| n.y <= ch + ch / 2);
                 }
+
+                // 按流动方向排序音符，使后方的音符覆盖前方的音符
+                // 不翻转按键，使用统一左上角坐标系：
+                // 方向 0（↓）：y 大的（下方按键）后渲染 → 下方覆盖上方
+                // 方向 1（↑）：y 小的（上方按键）后渲染 → 上方覆盖下方
+                // 方向 2（←）：x 小的（左侧按键）后渲染 → 左侧覆盖右侧
+                // 方向 3（→）：x 大的（右侧按键）后渲染 → 右侧覆盖左侧
+                notes.sort_by(|a, b| {
+                    let key_a = cfg.keys.iter().find(|k| k.rdev_key_name == a.rdev_key_name);
+                    let key_b = cfg.keys.iter().find(|k| k.rdev_key_name == b.rdev_key_name);
+                    let pos_a = key_a.map(|k| match cfg.flow_direction {
+                        2 | 3 => k.x,   // 水平方向用 x
+                        _ => k.y,        // 垂直方向用 y
+                    }).unwrap_or(0);
+                    let pos_b = key_b.map(|k| match cfg.flow_direction {
+                        2 | 3 => k.x,
+                        _ => k.y,
+                    }).unwrap_or(0);
+                    match cfg.flow_direction {
+                        0 => pos_b.cmp(&pos_a),  // ↓：y降序（下方后渲染）
+                        1 => pos_a.cmp(&pos_b),  // ↑：y升序（上方后渲染）
+                        2 => pos_a.cmp(&pos_b),  // ←：x升序（左侧后渲染）
+                        3 => pos_b.cmp(&pos_a),  // →：x降序（右侧后渲染）
+                        _ => pos_a.cmp(&pos_b),
+                    }
+                });
                 ui.set_bar_notes(create_model(&notes));
             }
         },

@@ -119,6 +119,14 @@ pub fn setup_settings_window(
             tmp.keys[idx].color_pressed = merge_alpha(&rgb, pct);
         }
     });
+    let tc = state.temp_config.clone();
+    settings.on_update_key_bar_width_percent(move |index, pct| {
+        let idx = index as usize;
+        let mut tmp = tc.lock().unwrap();
+        if idx < tmp.keys.len() {
+            tmp.keys[idx].bar_width_percent = pct;
+        }
+    });
     let state_del = state.clone();
     let s_weak = settings.as_weak();
     settings.on_delete_key(move |index| {
