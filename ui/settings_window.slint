@@ -3,7 +3,7 @@ import { KeyData } from "key_data.slint";
 
 export component SettingsWindow inherits Window {
     max-width: 1000px;
-    min-height:700px;
+    min-height: 700px;
     title: "VSRG-KeyVisualizer config";
     background: #252525;
     always-on-top: true;
@@ -50,6 +50,8 @@ export component SettingsWindow inherits Window {
     callback flow_speed_edited(int);
     callback delete_key(int);
     callback update_key_bar_width_percent(int, int);
+    /// 多选删除：弹出确认对话框，确认后删除所有选中的按键
+    callback delete_selected_keys();
 
     VerticalLayout {
         padding: 15px;
@@ -168,7 +170,11 @@ export component SettingsWindow inherits Window {
                             spacing: 4px;
                             alignment: center;
 
-                            Text { text: "X:"; color: #AAAAAA; vertical-alignment: center; }
+                            Text {
+                                text: "X:";
+                                color: #AAAAAA;
+                                vertical-alignment: center;
+                            }
 
                             current_x_input := SpinBox {
                                 value <=> root.current_x;
@@ -189,7 +195,11 @@ export component SettingsWindow inherits Window {
                             spacing: 4px;
                             alignment: center;
 
-                            Text { text: "Y:"; color: #AAAAAA; vertical-alignment: center; }
+                            Text {
+                                text: "Y:";
+                                color: #AAAAAA;
+                                vertical-alignment: center;
+                            }
 
                             current_y_input := SpinBox {
                                 value <=> root.current_y;
@@ -215,7 +225,11 @@ export component SettingsWindow inherits Window {
                             spacing: 4px;
                             alignment: center;
 
-                            Text { text: "W:"; color: #AAAAAA; vertical-alignment: center; }
+                            Text {
+                                text: "W:";
+                                color: #AAAAAA;
+                                vertical-alignment: center;
+                            }
 
                             current_w_input := SpinBox {
                                 value <=> root.current_w;
@@ -232,7 +246,11 @@ export component SettingsWindow inherits Window {
                             spacing: 4px;
                             alignment: center;
 
-                            Text { text: "H:"; color: #AAAAAA; vertical-alignment: center; }
+                            Text {
+                                text: "H:";
+                                color: #AAAAAA;
+                                vertical-alignment: center;
+                            }
 
                             current_h_input := SpinBox {
                                 value <=> root.current_h;
@@ -246,25 +264,8 @@ export component SettingsWindow inherits Window {
                         }
                     }
                     // --- Bar Width Percent 行 ---
-                    VerticalLayout {
-                        spacing: 4px;
-                        alignment: center;
-
-                        Text { text: "Bar W%:"; color: #AAAAAA; vertical-alignment: center; }
-
-                        current_bar_wp_input := SpinBox {
-                            value: root.current_bar_width_percent;
-                            enabled: root.selected_index != -1;
-                            minimum: 10;
-                            maximum: 100;
-                            step-size: 5;
-                            edited => {
-                                root.current_bar_width_percent = self.value;
-                                root.update_key_bar_width_percent(root.selected_index, self.value);
-                            }
-                        }
-                    }
                 }
+
                 GridLayout {
                     spacing: 8px;
                     Row {
@@ -282,7 +283,8 @@ export component SettingsWindow inherits Window {
                                 root.update_key_color(root.selected_index, self.text);
                             }
                         }
-
+                    }
+                    Row {
                         Text {
                             text: "Opacity %:";
                             vertical-alignment: center;
@@ -300,114 +302,157 @@ export component SettingsWindow inherits Window {
                                 root.update_key_opacity(root.selected_index, self.value);
                             }
                         }
-                    }
-                    Row {
                         Text {
-                            text: "Key Color:";
+                            text: "Bar W%:";
+                            color: #AAAAAA;
                             vertical-alignment: center;
-                            color: white;
                         }
 
-                        key_col_input := LineEdit {
-                            text: root.global_key_color_hex;
-                            edited => {
-                                root.global_key_color_hex = self.text;
-                                root.key_color_edited(self.text);
-                            }
-                        }
-
-                        Text {
-                            text: "Opacity %:";
-                            vertical-alignment: center;
-                            color: white;
-                        }
-
-                        SpinBox {
-                            value: root.global_key_opacity_percent;
-                            minimum: 1;
+                        current_bar_wp_input := SpinBox {
+                            value: root.current_bar_width_percent;
+                            enabled: root.selected_index != -1;
+                            minimum: 10;
                             maximum: 100;
                             step-size: 5;
                             edited => {
-                                root.global_key_opacity_percent = self.value;
-                                root.key_opacity_edited(self.value);
+                                root.current_bar_width_percent = self.value;
+                                root.update_key_bar_width_percent(root.selected_index, self.value);
                             }
                         }
                     }
                 }
+                
             }
-            
         }
-        Rectangle { width: 100%; height: 1px; background: #AAAAAA; }
+
+        Rectangle {
+            width: 100%;
+            height: 1px;
+            background: #AAAAAA;
+        }
+
         GridLayout {
             spacing: 8px;
-            
+
+            Row {
+                Text {
+                    text: "Key Color:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                key_col_input := LineEdit {
+                    text: root.global_key_color_hex;
+                    edited => {
+                        root.global_key_color_hex = self.text;
+                        root.key_color_edited(self.text);
+                    }
+                }
+
+                Text {
+                    text: "Opacity %:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                SpinBox {
+                    value: root.global_key_opacity_percent;
+                    minimum: 1;
+                    maximum: 100;
+                    step-size: 5;
+                    edited => {
+                        root.global_key_opacity_percent = self.value;
+                        root.key_opacity_edited(self.value);
+                    }
+                }
+            }
+        }
+
+        GridLayout {
+            spacing: 8px;
+
             // 第1行
             Row {
-                Text { 
-                    text: "Flow Direction:"; 
-                    vertical-alignment: center; 
-                    color: white; 
+                Text {
+                    text: "Flow Direction:";
+                    vertical-alignment: center;
+                    color: white;
                 }
+
                 SpinBox {
                     value: root.flow_direction;
-                    minimum: 0; maximum: 3; step-size: 1;
+                    minimum: 0;
+                    maximum: 3;
+                    step-size: 1;
                     edited => {
                         root.flow_direction = self.value;
                         root.flow_direction_edited(self.value);
                     }
                 }
-                Text { 
-                    text: "Flow Speed (px/tick):"; 
-                    vertical-alignment: center; 
-                    color: white; 
+
+                Text {
+                    text: "Flow Speed (px/tick):";
+                    vertical-alignment: center;
+                    color: white;
                 }
+
                 SpinBox {
                     value: root.flow_speed;
-                    minimum: 1; maximum: 50; step-size: 1;
+                    minimum: 1;
+                    maximum: 50;
+                    step-size: 1;
                     edited => {
                         root.flow_speed = self.value;
                         root.flow_speed_edited(self.value);
                     }
                 }
             }
-            
+
             // 第2行
             Row {
-                Text { 
-                    text: "Top Disappear Boundary (px):"; 
-                    vertical-alignment: center; 
-                    color: white; 
+                Text {
+                    text: "Top Disappear Boundary (px):";
+                    vertical-alignment: center;
+                    color: white;
                 }
+
                 SpinBox {
                     value: root.global_top_boundary;
-                    minimum: 0; maximum: 800; step-size: 10;
+                    minimum: 0;
+                    maximum: 800;
+                    step-size: 10;
                     edited => {
                         root.global_top_boundary = self.value;
                         root.top_boundary_edited(self.value);
                     }
                 }
-                Text { 
-                    text: "Key Margin Width (px):"; 
-                    vertical-alignment: center; 
-                    color: white; 
+
+                Text {
+                    text: "Key Margin Width (px):";
+                    vertical-alignment: center;
+                    color: white;
                 }
+
                 SpinBox {
                     value: root.key_margin_width;
-                    minimum: 0; maximum: 100; step-size: 1;
+                    minimum: 0;
+                    maximum: 100;
+                    step-size: 1;
                     edited => {
                         root.key_margin_width = self.value;
                         root.key_margin_edited(self.value);
                     }
                 }
             }
-            
+
             // 第3行 - Border Color 跨两列
             Row {
-                Text { 
-                    text: "Border Color:"; 
-                    vertical-alignment: center; 
-                    color: white; 
+                Text {
+                    text: "Border Color:";
+                    vertical-alignment: center;
+                    color: white;
                 }
+
                 border_col_input := LineEdit {
                     text: root.global_border_color_hex;
                     edited => {
@@ -419,14 +464,14 @@ export component SettingsWindow inherits Window {
                 // 注意：Slint 中 col-span 需要加在元素上
             }
         }
+
         HorizontalLayout {
             spacing: 15px;
             Button {
                 text: "Delete Selected Key";
                 enabled: root.selected_index != -1;
                 clicked => {
-                    root.delete_key(root.selected_index);
-                    root.selected_index = -1;
+                    root.delete_selected_keys();
                 }
             }
 
@@ -436,6 +481,19 @@ export component SettingsWindow inherits Window {
                 clicked => {
                     root.save_config();
                 }
+            }
+        }
+
+        // Delete 键盘快捷键：弹出确认框后回车确认
+        key_handler := FocusScope {
+            // 当有选中按键时，捕获 Delete/Backspace 键触发删除对话框
+            enabled: root.selected_index != -1;
+
+            key-pressed(ev) => {
+                if (ev.text == "" || ev.text == "\u{7f}") { // Delete 键
+                    root.delete_selected_keys();
+                    accept
+                } else { reject }
             }
         }
     }

@@ -62,6 +62,8 @@ pub enum UIAction {
         index: i32,
         pct: i32,
     },
+    /// 批量删除选中的按键
+    BatchDeleteKeys,
 }
 
 pub struct AppState {
@@ -373,6 +375,23 @@ impl AppState {
                 let model = create_model_with_selection(&tmp.keys, &sel);
                 ui.set_root_preview_keys(model);
                 ui.set_current_bar_width_percent(pct);
+            }
+
+            UIAction::BatchDeleteKeys => {
+                let sel = self.selected_indices.lock().unwrap().clone();
+                // 从大到小排序删除，保证索引正确
+                let mut sorted: Vec<usize> = sel.iter().copied().collect();
+                sorted.sort_unstable_by(|a, b| b.cmp(a));
+                for &si in sorted.iter() {
+                    if si < tmp.keys.len() {
+                        tmp.keys.remove(si);
+                    }
+                }
+                // 清空选中集
+                self.selected_indices.lock().unwrap().clear();
+                ui.set_selected_index(-1);
+                let model = create_model_with_selection(&tmp.keys, &std::collections::HashSet::new());
+                ui.set_root_preview_keys(model);
             }
         }
     }

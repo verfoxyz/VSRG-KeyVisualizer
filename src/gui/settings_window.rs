@@ -138,6 +138,15 @@ pub fn setup_settings_window(
         }
     });
 
+    // 多选删除（通过 dispatch）
+    let state_del = state.clone();
+    let s_weak = settings.as_weak();
+    settings.on_delete_selected_keys(move || {
+        if let Some(s) = s_weak.upgrade() {
+            state_del.dispatch(UIAction::BatchDeleteKeys, &s.as_weak());
+        }
+    });
+
     let state_save = state.clone();
     let s_weak = settings.as_weak();
     settings.on_save_config(move || {
