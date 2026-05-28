@@ -1,5 +1,5 @@
 // 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
-#![cfg_attr(windows, windows_subsystem = "windows")]
+//#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod state;
 mod gui {
@@ -296,6 +296,16 @@ fn create_model<T: ToKeyData>(items: &[T]) -> ModelRc<KeyData> {
     Rc::new(VecModel::from(data)).into()
 }
 
+/// 带多选高亮的渲染函数：根据 selected_indices 设置每个 KeyData 的 selected 字段
+fn create_model_with_selection<T: ToKeyData>(items: &[T], selected: &std::collections::HashSet<usize>) -> ModelRc<KeyData> {
+    let data: Vec<KeyData> = items.iter().enumerate().map(|(i, item)| {
+        let mut kd = item.to_key_data();
+        kd.selected = selected.contains(&i);
+        kd
+    }).collect();
+    Rc::new(VecModel::from(data)).into()
+}
+
 /// 线程安全的 HWND 包装（HWND 本身是 `*mut c_void`，不自动实现 Send）
 #[derive(Clone, Copy)]
 struct SafeHWND(windows::Win32::Foundation::HWND);
@@ -430,7 +440,7 @@ fn create_settings_window(
 /// ======================================== MAIN ========================================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 

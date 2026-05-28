@@ -34,8 +34,8 @@ pub fn setup_settings_window(
     // 2. 将前端视图回调安全投递至 Dispatcher
     let settings_weak = settings.as_weak();
     let state_clone = state.clone();
-    settings.on_handle_canvas_pointer_down(move |x, y, _ctrl| {
-        state_clone.dispatch(UIAction::HitTestAndSelect { canvas_x: x, canvas_y: y }, &settings_weak);
+    settings.on_handle_canvas_pointer_down(move |x, y, ctrl| {
+        state_clone.dispatch(UIAction::HitTestAndSelect { canvas_x: x, canvas_y: y, ctrl }, &settings_weak);
     });
 
     let settings_weak = settings.as_weak();
@@ -91,40 +91,37 @@ pub fn setup_settings_window(
         *state_add.dialog_holder.lock().unwrap() = Some(capture_dialog.as_weak());
     });
 
-    // 4. 按键大小/颜色/删除操作
-    let tc = state.temp_config.clone();
+    // 4. 按键大小/颜色/删除操作（通过 dispatch 实现多选批量编辑）
+    let state_dispatch = state.clone();
+    let s_weak = settings.as_weak();
     settings.on_update_key_size(move |index, w, h| {
-        let idx = index as usize;
-        let mut tmp = tc.lock().unwrap();
-        if idx < tmp.keys.len() {
-            tmp.keys[idx].width = w;
-            tmp.keys[idx].height = h;
+        let s = match s_weak.upgrade() { Some(x) => x, None => return };
+        state_dispatch.dispatch(UIAction::BatchUpdateWidth { index, value: w }, &s.as_weak());
+        state_dispatch.dispatch(UIAction::BatchUpdateHeight { index, value: h }, &s.as_weak());
+        if let Some(win) = s_weak.upgrade() {
+            win.set_current_w(w);
+            win.set_current_h(h);
         }
     });
-    let tc = state.temp_config.clone();
+    let state_dispatch = state.clone();
+    let s_weak = settings.as_weak();
     settings.on_update_key_color(move |index, color| {
-        let idx = index as usize;
-        let mut tmp = tc.lock().unwrap();
-        if idx < tmp.keys.len() {
-            let (_, old_pct) = split_alpha(&tmp.keys[idx].color_pressed);
-            tmp.keys[idx].color_pressed = merge_alpha(&color, old_pct);
+        if let Some(s) = s_weak.upgrade() {
+            state_dispatch.dispatch(UIAction::BatchUpdateColor { index, color: color.to_string() }, &s.as_weak());
         }
     });
-    let tc = state.temp_config.clone();
+    let state_dispatch = state.clone();
+    let s_weak = settings.as_weak();
     settings.on_update_key_opacity(move |index, pct| {
-        let idx = index as usize;
-        let mut tmp = tc.lock().unwrap();
-        if idx < tmp.keys.len() {
-            let (rgb, _) = split_alpha(&tmp.keys[idx].color_pressed);
-            tmp.keys[idx].color_pressed = merge_alpha(&rgb, pct);
+        if let Some(s) = s_weak.upgrade() {
+            state_dispatch.dispatch(UIAction::BatchUpdateOpacity { index, pct }, &s.as_weak());
         }
     });
-    let tc = state.temp_config.clone();
+    let state_dispatch = state.clone();
+    let s_weak = settings.as_weak();
     settings.on_update_key_bar_width_percent(move |index, pct| {
-        let idx = index as usize;
-        let mut tmp = tc.lock().unwrap();
-        if idx < tmp.keys.len() {
-            tmp.keys[idx].bar_width_percent = pct;
+        if let Some(s) = s_weak.upgrade() {
+            state_dispatch.dispatch(UIAction::BatchUpdateBarWidthPercent { index, pct }, &s.as_weak());
         }
     });
     let state_del = state.clone();

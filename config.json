@@ -4,10 +4,10 @@
   "global_border_color": "#555555",
   "key_margin_width": 10,
   "global_key_color": "#33333366",
-  "flow_direction": 3,
+  "flow_direction": 1,
   "flow_speed": 10,
-  "window_x": 1176,
-  "window_y": 361,
+  "window_x": 1117,
+  "window_y": 186,
   "keys": [
     {
       "rdev_key_name": "KeyA",
@@ -17,7 +17,7 @@
       "width": 80,
       "height": 80,
       "color_pressed": "#FFFFFFFF",
-      "bar_width_percent": 70
+      "bar_width_percent": 90
     },
     {
       "rdev_key_name": "KeyW",
@@ -47,7 +47,7 @@
       "width": 80,
       "height": 80,
       "color_pressed": "#FFFF00FF",
-      "bar_width_percent": 100
+      "bar_width_percent": 90
     }
   ]
 }

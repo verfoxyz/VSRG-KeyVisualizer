@@ -14,6 +14,7 @@ pub struct MovementPipeline {
 
 impl MovementPipeline {
     /// 核心暴露接口：原始鼠标输入通过过滤器，返回绝对安全的物理坐标
+    /// `skip_indices` — 碰撞和吸附时忽略这些索引（用于多选拖拽，选中按键间不互斥）
     pub fn transform_position(
         &self,
         moved_idx: usize,
@@ -21,12 +22,13 @@ impl MovementPipeline {
         req_y: i32,
         keys: &[KeyConfig],
         enable_snap: bool,
+        skip_indices: &std::collections::HashSet<usize>,
     ) -> (i32, i32) {
         // Filter 1: 磁性吸附
-        let (x1, y1) = self.apply_grid_snap(moved_idx, req_x, req_y, keys, enable_snap);
+        let (x1, y1) = self.apply_grid_snap(moved_idx, req_x, req_y, keys, enable_snap, skip_indices);
 
         // Filter 2: 刚体碰撞阻挡
-        let (x2, y2) = self.apply_aabb_collision(moved_idx, x1, y1, keys);
+        let (x2, y2) = self.apply_aabb_collision(moved_idx, x1, y1, keys, skip_indices);
 
         // Filter 3: 画布限幅边界
         self.apply_canvas_boundary(moved_idx, x2, y2, keys)
@@ -43,6 +45,7 @@ impl MovementPipeline {
         my: i32,
         keys: &[KeyConfig],
         enable_snap: bool,
+        skip_indices: &std::collections::HashSet<usize>,
     ) -> (i32, i32) {
         if !enable_snap {
             return (mx, my);
@@ -53,11 +56,12 @@ impl MovementPipeline {
         let spacing = self.margin;
 
         // 收集所有候选吸附位置，选择最近的
-        let (best_x, snap_x) = self.find_best_snap(
+        let (best_x, snap_x) = self.find_best_snap_skipping(
             mx,
             moved_index,
             keys,
             SNAP_THRESHOLD,
+            skip_indices,
             |k: &KeyConfig| -> [i32; 4] {
                 // 为 X 方向生成 4 个吸附候选值
                 [
@@ -69,11 +73,12 @@ impl MovementPipeline {
             },
         );
 
-        let (best_y, snap_y) = self.find_best_snap(
+        let (best_y, snap_y) = self.find_best_snap_skipping(
             my,
             moved_index,
             keys,
             SNAP_THRESHOLD,
+            skip_indices,
             |k: &KeyConfig| -> [i32; 4] {
                 [
                     k.y,
@@ -90,21 +95,22 @@ impl MovementPipeline {
         (fx, fy)
     }
 
-    /// 在指定轴上查找距离鼠标坐标最近的吸附候选点
-    fn find_best_snap<const N: usize>(
+    /// 在指定轴上查找距离鼠标坐标最近的吸附候选点（跳过 skip_indices 中的按键）
+    fn find_best_snap_skipping<const N: usize>(
         &self,
         mouse_pos: i32,
         moved_index: usize,
         keys: &[KeyConfig],
         threshold: i32,
+        skip_indices: &std::collections::HashSet<usize>,
         candidates_fn: impl Fn(&KeyConfig) -> [i32; N],
     ) -> (i32, bool) {
         let mut best = mouse_pos;
-        let mut best_dist = threshold; // 超过阈值就不吸附
+        let mut best_dist = threshold;
         let mut found = false;
 
         for (i, k) in keys.iter().enumerate() {
-            if i == moved_index { continue; }
+            if i == moved_index || skip_indices.contains(&i) { continue; }
             for &cand in candidates_fn(k).iter() {
                 let d = (mouse_pos - cand).abs();
                 if d <= best_dist {
@@ -128,6 +134,7 @@ impl MovementPipeline {
         target_x: i32,
         target_y: i32,
         keys: &[KeyConfig],
+        skip_indices: &std::collections::HashSet<usize>,
     ) -> (i32, i32) {
         let key_w = keys[moved_index].width;
         let key_h = keys[moved_index].height;
@@ -139,9 +146,9 @@ impl MovementPipeline {
         let mut ay2 = target_y + key_h + margin;
 
         if keys.len() >= INDEXING_THRESHOLD {
-            self.apply_aabb_collision_indexed(moved_index, &mut ax1, &mut ax2, &mut ay1, &mut ay2, keys);
+            self.apply_aabb_collision_indexed(moved_index, &mut ax1, &mut ax2, &mut ay1, &mut ay2, keys, skip_indices);
         } else {
-            self.apply_aabb_collision_bruteforce(moved_index, &mut ax1, &mut ax2, &mut ay1, &mut ay2, keys);
+            self.apply_aabb_collision_bruteforce(moved_index, &mut ax1, &mut ax2, &mut ay1, &mut ay2, keys, skip_indices);
         }
 
         (ax1 + margin, ay1 + margin)
@@ -155,10 +162,11 @@ impl MovementPipeline {
         ay1: &mut i32,
         ay2: &mut i32,
         keys: &[KeyConfig],
+        skip_indices: &std::collections::HashSet<usize>,
     ) {
         let margin = self.margin;
         for (i, b) in keys.iter().enumerate() {
-            if i == moved_index { continue; }
+            if i == moved_index || skip_indices.contains(&i) { continue; }
             self.resolve_one_collision(b, margin, ax1, ax2, ay1, ay2);
         }
     }
@@ -171,6 +179,7 @@ impl MovementPipeline {
         ay1: &mut i32,
         ay2: &mut i32,
         keys: &[KeyConfig],
+        skip_indices: &std::collections::HashSet<usize>,
     ) {
         let margin = self.margin;
         let cell_size = 100; // 空间哈希网格单元大小
@@ -178,7 +187,7 @@ impl MovementPipeline {
         // 构建空间哈希：将按键映射到网格
         let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
         for (i, b) in keys.iter().enumerate() {
-            if i == moved_index { continue; }
+            if i == moved_index || skip_indices.contains(&i) { continue; }
             let cx = b.x / cell_size;
             let cy = b.y / cell_size;
             grid.entry((cx, cy)).or_default().push(i);
