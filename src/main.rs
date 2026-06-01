@@ -432,11 +432,16 @@ fn create_settings_window(
     state: &AppState,
     main_ui_weak: &slint::Weak<MainWindow>,
 ) -> Option<SettingsWindow> {
+    // 检查是否已有设置窗口打开，防止重复创建
+    if let Some(holder) = state.settings_holder.lock().unwrap().as_ref() {
+        if let Some(existing) = holder.upgrade() {
+            existing.show().unwrap();
+            return None;
+        }
+    }
     let settings = SettingsWindow::new().ok()?;
     settings.show().unwrap();
     gui::settings_window::setup_settings_window(settings, state.clone(), main_ui_weak.clone());
-    // setup_settings_window 会存储弱引用，窗口由 Slint 事件循环保持存活
-    // 我们不持有 Rust 端的强引用，window 关闭后自动清理
     None
 }
 

@@ -87,6 +87,14 @@ pub fn setup_settings_window(
     let state_add = state.clone();
     let s_weak = settings.as_weak();
     settings.on_add_new_key(move || {
+        // 检查是否已有按键捕获对话框，防止重复创建
+        if let Some(holder) = state_add.dialog_holder.lock().unwrap().as_ref() {
+            if let Some(existing) = holder.upgrade() {
+                existing.show().unwrap();
+                return;
+            }
+        }
+
         state_add.capture_mode.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(s) = s_weak.upgrade() { s.set_capturing_mode(true); }
         let capture_dialog = KeyCaptureDialog::new().unwrap();

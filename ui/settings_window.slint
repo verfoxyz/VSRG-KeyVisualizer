@@ -377,6 +377,28 @@ export component SettingsWindow inherits Window {
             spacing: 8px;
 
             // 第1行
+                        Row {
+                Text {
+                    text: "Front-Line Emit:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                CheckBox {
+                    checked: root.front_line_emit;
+                    toggled => {
+                        root.front_line_emit = self.checked;
+                        root.front_line_emit_toggled(self.checked);
+                    }
+                }
+
+                Text {
+                    text: "All notes emit from front-line keys";
+                    color: #888888;
+                    vertical-alignment: center;
+                }
+            }
+            // 第2行 - Flow Direction 和 Speed
             Row {
                 Text {
                     text: "Flow Direction:";
@@ -413,7 +435,7 @@ export component SettingsWindow inherits Window {
                 }
             }
 
-            // 第2行
+            // 第3行 - Top Disappear Boundary 和 Key Margin Width
             Row {
                 Text {
                     text: "Top Disappear Boundary (px):";
@@ -447,29 +469,6 @@ export component SettingsWindow inherits Window {
                         root.key_margin_width = self.value;
                         root.key_margin_edited(self.value);
                     }
-                }
-            }
-
-            // 第3行 - 前端统一发射
-            Row {
-                Text {
-                    text: "Front-Line Emit:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                CheckBox {
-                    checked: root.front_line_emit;
-                    toggled => {
-                        root.front_line_emit = self.checked;
-                        root.front_line_emit_toggled(self.checked);
-                    }
-                }
-
-                Text {
-                    text: "All notes emit from front-line keys";
-                    color: #888888;
-                    vertical-alignment: center;
                 }
             }
 
