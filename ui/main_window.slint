@@ -121,9 +121,9 @@ export component MainWindow inherits Window {
                 );
             }
             else if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                // 右键弹出菜单
-                root.context_menu_x = self.pressed-x;
-                root.context_menu_y = self.pressed-y;
+                // 右键弹出菜单（使用 mouse-x/y 而非 pressed-x/y，因为右键不更新 pressed 位置）
+                root.context_menu_x = self.mouse-x;
+                root.context_menu_y = self.mouse-y;
                 context_menu.show();
             }
             
