@@ -1,4 +1,4 @@
-import { Button, LineEdit, SpinBox } from "std-widgets.slint";
+import { Button, LineEdit, SpinBox, CheckBox } from "std-widgets.slint";
 import { KeyData } from "key_data.slint";
 
 export component SettingsWindow inherits Window {
@@ -30,6 +30,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> key_margin_width: 4;
     in-out property <int> flow_direction: 0;
     in-out property <int> flow_speed: 4;
+    in-out property <bool> front_line_emit: false;
 
     // 暴露纯单向的事件意图通知接口
     callback handle_canvas_pointer_down(int, int, bool);
@@ -48,6 +49,7 @@ export component SettingsWindow inherits Window {
     callback key_opacity_edited(int);
     callback flow_direction_edited(int);
     callback flow_speed_edited(int);
+    callback front_line_emit_toggled(bool);
     callback delete_key(int);
     callback update_key_bar_width_percent(int, int);
     /// 多选删除：弹出确认对话框，确认后删除所有选中的按键
@@ -445,7 +447,30 @@ export component SettingsWindow inherits Window {
                 }
             }
 
-            // 第3行 - Border Color 跨两列
+            // 第3行 - 前端统一发射
+            Row {
+                Text {
+                    text: "Front-Line Emit:";
+                    vertical-alignment: center;
+                    color: white;
+                }
+
+                CheckBox {
+                    checked: root.front_line_emit;
+                    toggled => {
+                        root.front_line_emit = self.checked;
+                        root.front_line_emit_toggled(self.checked);
+                    }
+                }
+
+                Text {
+                    text: "All notes emit from front-line keys";
+                    color: #888888;
+                    vertical-alignment: center;
+                }
+            }
+
+            // 第4行 - Border Color
             Row {
                 Text {
                     text: "Border Color:";

@@ -4,10 +4,11 @@
   "global_border_color": "#555555",
   "key_margin_width": 10,
   "global_key_color": "#33333366",
-  "flow_direction": 1,
+  "flow_direction": 3,
   "flow_speed": 10,
-  "window_x": 1111,
-  "window_y": 241,
+  "front_line_emit": true,
+  "window_x": 728,
+  "window_y": 411,
   "keys": [
     {
       "rdev_key_name": "KeyA",

@@ -67,11 +67,31 @@ impl LiveVisualizer {
                 let pct = key_cfg.bar_width_percent.max(10).min(100);
                 let bar_w = key_cfg.width * pct / 100;
                 let bar_h = key_cfg.height * pct / 100;
+
+                // 前端统一发射：计算流动方向最前端的按键发射边缘位置
+                let note_start_edge = if cfg.front_line_emit {
+                    Self::calc_front_line_edge(&cfg.keys, cfg.flow_direction)
+                } else {
+                    None
+                };
+
                 let (start_x, start_y, note_w, note_h, vx, vy) = match cfg.flow_direction {
-                    1 => (key_cfg.x, key_cfg.y + cfg.top_boundary, bar_w, 0, 0, -speed),
-                    2 => (key_cfg.x + cfg.top_boundary, key_cfg.y, 0, bar_h, -speed, 0),
-                    3 => (key_cfg.x + key_cfg.width, key_cfg.y, 0, bar_h, speed, 0),
-                    _ => (key_cfg.x, key_cfg.y + key_cfg.height, bar_w, 0, 0, speed),
+                    1 => {
+                        let sy = note_start_edge.unwrap_or(key_cfg.y) + cfg.top_boundary;
+                        (key_cfg.x, sy, bar_w, 0, 0, -speed)
+                    }
+                    2 => {
+                        let sx = note_start_edge.unwrap_or(key_cfg.x) + cfg.top_boundary;
+                        (sx, key_cfg.y, 0, bar_h, -speed, 0)
+                    }
+                    3 => {
+                        let sx = note_start_edge.unwrap_or(key_cfg.x + key_cfg.width);
+                        (sx, key_cfg.y, 0, bar_h, speed, 0)
+                    }
+                    _ => {
+                        let sy = note_start_edge.unwrap_or(key_cfg.y + key_cfg.height);
+                        (key_cfg.x, sy, bar_w, 0, 0, speed)
+                    }
                 };
                 notes.push(BarNote {
                     rdev_key_name: rdev_name.to_string(),
@@ -92,6 +112,23 @@ impl LiveVisualizer {
             }
             update_key_visual_state(&ui.as_weak(), rdev_name.to_string(), false);
         }
+    }
+
+    /// 计算流动方向最前端的发射边缘位置（音符从此边缘开始生成）
+    /// 返回边缘坐标值：
+    /// 方向 0（↓）：最下方按键的底部 y（= max(y + height)）
+    /// 方向 1（↑）：最上方按键的顶部 y（= min(y)）
+    /// 方向 2（←）：最左侧按键的左侧 x（= min(x)）
+    /// 方向 3（→）：最右侧按键的右侧 x（= max(x + width)）
+    fn calc_front_line_edge(keys: &[KeyConfig], flow_dir: i32) -> Option<i32> {
+        if keys.is_empty() { return None; }
+        Some(match flow_dir {
+            0 => keys.iter().map(|k| k.y + k.height).max().unwrap(),
+            1 => keys.iter().map(|k| k.y).min().unwrap(),
+            2 => keys.iter().map(|k| k.x).min().unwrap(),
+            3 => keys.iter().map(|k| k.x + k.width).max().unwrap(),
+            _ => return None,
+        })
     }
 }
 

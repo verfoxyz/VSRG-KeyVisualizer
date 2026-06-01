@@ -12,6 +12,15 @@ pub fn win_vkey_to_rdev_str(vkey: u16) -> &'static str {
         0x27 => "RightArrow",
         0x28 => "DownArrow",
         0xBA => "SemiColon",
+        0xBB => "Plus",
+        0xBC => "Comma",
+        0xBD => "Minus",
+        0xBE => "Period",
+        0xBF => "Slash",
+        0xC0 => "BackQuote",
+        0xDB => "OpenBracket",
+        0xDC => "BackSlash",
+        0xDD => "CloseBracket",
         0xDE => "Quote",
 
         // 2. A-Z (0x41 - 0x5A)：范围匹配 + 数组偏移查表

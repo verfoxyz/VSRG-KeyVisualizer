@@ -150,9 +150,13 @@ impl AppState {
                             sel.insert(idx);
                         }
                     } else {
-                        // 非 Ctrl：清空多选，仅选中当前按键
-                        sel.clear();
-                        sel.insert(idx);
+                        if sel.contains(&idx) {
+                            // 点击已选中的按键 → 保留多选选集（允许拖拽整个组）
+                        } else {
+                            // 点击未选中的按键 → 清空多选，仅选中当前按键
+                            sel.clear();
+                            sel.insert(idx);
+                        }
                     }
 
                     // 用选中的最后一个（或当前点击的）填充右侧属性面板
@@ -188,47 +192,56 @@ impl AppState {
                 let idx = index as usize;
                 if idx >= tmp.keys.len() { return; }
 
-                // 获取多选集合作为物理管线的跳过集（选中的按键之间不互斥）
+                // 获取多选集合
                 let skip = self.selected_indices.lock().unwrap().clone();
-                // 锁已通过 clone 释放，skip 可安全使用
 
                 // 用存储的拖拽偏移将 raw 画布坐标转为按键目标坐标
                 let (off_x, off_y) = *self.drag_offset.lock().unwrap();
                 let target_x = mouse_x - off_x;
                 let target_y = mouse_y - off_y;
 
-                // 初始化物理管线
+                // 初始化物理管线（仅用于锚点按键）
                 let pipeline = MovementPipeline {
                     canvas_w,
                     canvas_h,
                     margin: tmp.key_margin_width,
                 };
 
-                // 穿过物理过滤器流（跳过所有选中按键之间的碰撞/吸附）
+                // 仅让拖拽的锚点按键穿过物理过滤器（跳过其他选中按键）
                 let (real_x, real_y) = pipeline.transform_position(idx, target_x, target_y, &tmp.keys, true, &skip);
 
-                // 计算移动增量
+                // 计算刚性增量 = 锚点按键的物理修正后位移
                 let dx = real_x - tmp.keys[idx].x;
                 let dy = real_y - tmp.keys[idx].y;
 
-                // 更新核心状态（当前拖拽的按键）
-                tmp.keys[idx].x = real_x;
-                tmp.keys[idx].y = real_y;
-
-                // 同步移动所有其他选中的按键（使用相同的增量，同样跳过选中集）
+                // 刚性组检测：如果任一选中按键越过边界，则该轴整个不移动
+                let margin = tmp.key_margin_width;
+                let mut can_move_x = true;
+                let mut can_move_y = true;
                 for &si in skip.iter() {
-                    if si != idx && si < tmp.keys.len() {
-                        let (sx, sy) = pipeline.transform_position(si, tmp.keys[si].x + dx, tmp.keys[si].y + dy, &tmp.keys, true, &skip);
-                        tmp.keys[si].x = sx;
-                        tmp.keys[si].y = sy;
+                    if si < tmp.keys.len() {
+                        let nx = tmp.keys[si].x + dx;
+                        let ny = tmp.keys[si].y + dy;
+                        if nx - margin < 0 { can_move_x = false; }
+                        if ny - margin < 0 { can_move_y = false; }
+                    }
+                }
+                let final_dx = if can_move_x { dx } else { 0 };
+                let final_dy = if can_move_y { dy } else { 0 };
+
+                // 将一致的增量应用到所有选中的按键
+                for &si in skip.iter() {
+                    if si < tmp.keys.len() {
+                        tmp.keys[si].x += final_dx;
+                        tmp.keys[si].y += final_dy;
                     }
                 }
 
                 // 触发数据回刷闭环（使用含多选的模型）
                 let model = create_model_with_selection(&tmp.keys, &skip);
                 ui.set_root_preview_keys(model);
-                ui.set_current_x(real_x);
-                ui.set_current_y(real_y);
+                ui.set_current_x(tmp.keys[idx].x);
+                ui.set_current_y(tmp.keys[idx].y);
             }
 
             UIAction::SpinBoxUpdateX { index, value, canvas_w, canvas_h } => {
@@ -247,19 +260,22 @@ impl AppState {
                 let (real_x, _real_y) = pipeline.transform_position(idx, value, tmp.keys[idx].y, &tmp.keys, false, &skip);
 
                 let dx = real_x - tmp.keys[idx].x;
-                tmp.keys[idx].x = real_x;
-
-                // 同步移动所有选中的按键（仅 X）
+                // 刚性组检测：任一选中按键撞左边界则整组不移动
+                let margin = tmp.key_margin_width;
+                let mut can_move_x = true;
                 for &si in skip.iter() {
-                    if si != idx && si < tmp.keys.len() {
-                        let (sx, _) = pipeline.transform_position(si, tmp.keys[si].x + dx, tmp.keys[si].y, &tmp.keys, false, &skip);
-                        tmp.keys[si].x = sx;
+                    if si < tmp.keys.len() {
+                        if tmp.keys[si].x + dx - margin < 0 { can_move_x = false; }
                     }
+                }
+                let final_dx = if can_move_x { dx } else { 0 };
+                for &si in skip.iter() {
+                    if si < tmp.keys.len() { tmp.keys[si].x += final_dx; }
                 }
 
                 let model = create_model_with_selection(&tmp.keys, &skip);
                 ui.set_root_preview_keys(model);
-                ui.set_current_x(real_x);
+                ui.set_current_x(tmp.keys[idx].x);
             }
 
             UIAction::SpinBoxUpdateY { index, value, canvas_w, canvas_h } => {
@@ -277,19 +293,22 @@ impl AppState {
                 let (_real_x, real_y) = pipeline.transform_position(idx, tmp.keys[idx].x, value, &tmp.keys, false, &skip);
 
                 let dy = real_y - tmp.keys[idx].y;
-                tmp.keys[idx].y = real_y;
-
-                // 同步移动所有选中的按键（仅 Y）
+                // 刚性组检测：任一选中按键撞上边界则整组不移动
+                let margin = tmp.key_margin_width;
+                let mut can_move_y = true;
                 for &si in skip.iter() {
-                    if si != idx && si < tmp.keys.len() {
-                        let (_, sy) = pipeline.transform_position(si, tmp.keys[si].x, tmp.keys[si].y + dy, &tmp.keys, false, &skip);
-                        tmp.keys[si].y = sy;
+                    if si < tmp.keys.len() {
+                        if tmp.keys[si].y + dy - margin < 0 { can_move_y = false; }
                     }
+                }
+                let final_dy = if can_move_y { dy } else { 0 };
+                for &si in skip.iter() {
+                    if si < tmp.keys.len() { tmp.keys[si].y += final_dy; }
                 }
 
                 let model = create_model_with_selection(&tmp.keys, &skip);
                 ui.set_root_preview_keys(model);
-                ui.set_current_y(real_y);
+                ui.set_current_y(tmp.keys[idx].y);
             }
 
             // ===== 批量编辑：对所有选中的按键应用同一修改 =====

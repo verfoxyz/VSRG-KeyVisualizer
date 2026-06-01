@@ -103,6 +103,9 @@ struct AppConfig {
     flow_speed: i32,
 
     #[serde(default)]
+    front_line_emit: bool,
+
+    #[serde(default)]
     window_x: Option<i32>,
     #[serde(default)]
     window_y: Option<i32>,
@@ -120,6 +123,7 @@ impl Default for AppConfig {
             global_key_color: default_key_color(),
             flow_direction: default_flow_direction(),
             flow_speed: default_flow_speed(),
+            front_line_emit: false,
             window_x: None,
             window_y: None,
             keys: vec![KeyConfig {
