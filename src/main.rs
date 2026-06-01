@@ -557,6 +557,12 @@ fn main() {
             }
         }
     });
+    // 绑定右键菜单中的"打开配置"
+    let state_for_settings = state.clone();
+    let ui_weak_settings = ui.as_weak();
+    ui.on_request_settings(move || {
+        create_settings_window(&state_for_settings, &ui_weak_settings);
+    });
     // 保存窗口位置
     let state_for_close = state.clone();
     let ui_weak_close = ui.as_weak();

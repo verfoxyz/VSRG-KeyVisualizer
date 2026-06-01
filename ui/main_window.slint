@@ -121,13 +121,96 @@ export component MainWindow inherits Window {
                 );
             }
             else if (event.button == PointerEventButton.right && event.kind == PointerEventKind.down) {
-                root.request_close();
+                // 右键弹出菜单
+                root.context_menu_x = self.pressed-x;
+                root.context_menu_y = self.pressed-y;
+                context_menu.show();
             }
             
         }
         moved => {
             if (self.pressed) {
                 root.gui_drag_window();
+            }
+        }
+    }
+
+    // 右键菜单坐标
+    property <length> context_menu_x: 0px;
+    property <length> context_menu_y: 0px;
+
+    // 层级 4：右键上下文菜单
+    context_menu := PopupWindow {
+        x: root.context_menu_x;
+        y: root.context_menu_y;
+        width: 160px;
+
+        Rectangle {
+            background: #2b2b2b;
+            border-radius: 6px;
+            border-width: 1px;
+            border-color: #555555;
+
+            VerticalLayout {
+                padding: 4px;
+                spacing: 2px;
+
+                // 示例：将菜单项的 Rectangle 修改为支持状态高亮
+                TouchArea {
+                    height: 32px;
+                    // 使用变量暂存 hover 和 pressed 状态
+                    property <bool> is_hovered: self.has-hover;
+                    property <bool> is_pressed: self.pressed;
+
+                    clicked => {
+                        context_menu.close();
+                        root.request_settings();
+                    }
+                    
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        // 核心：点击时变深色，悬停时变浅色，平时透明
+                        background: is_pressed ? #444444 : (is_hovered ? #3a3a3a : transparent);
+                        border-radius: 4px; // 加上圆角更自然
+                        
+                        Text {
+                            x: 10px;
+                            text: "打开配置";
+                            color: white;
+                            vertical-alignment: center;
+                            font-size: 14px;
+                        }
+                    }
+                }
+
+                // 分隔线
+                Rectangle {
+                    height: 1px;
+                    width: 100%;
+                    background: #555555;
+                }
+
+                // 选项 2：关闭
+                TouchArea {
+                    height: 32px;
+                    clicked => {
+                        context_menu.close();
+                        root.request_close();
+                    }
+                    Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        background: transparent;
+                        Text {
+                            x: 10px;
+                            text: "关闭";
+                            color: #ff6666;
+                            vertical-alignment: center;
+                            font-size: 14px;
+                        }
+                    }
+                }
             }
         }
     }
