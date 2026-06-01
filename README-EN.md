@@ -10,39 +10,68 @@ English|[中文](README.md)
   </tr>
 </table>
 
-VSRG-KeyVisualizer is a lightweight, real-time keyboard key display tool designed to provide intuitive key visualization feedback for VSRG (Vertical Scrolling Rhythm Games) players. 
+VSRG-KeyVisualizer is a lightweight, real-time keyboard key visualization tool for VSRG (Vertical Scrolling Rhythm Games) players.
+
 ## Project Status
-Currently, it only supports Windows.
-Double-click the main window to open the configuration interface, and right-click to close the application!!!
-There are still some bugs, but it is basically functional. More features will be added in the future.
-## Introduction
-Whether you are live streaming, recording videos, or just practicing, VSRG-KeyVisualizer can capture and display your keyboard inputs in real-time, helping your audience or yourself observe the keypress process more clearly. This project is written in **Rust** and developed using the **Slint** UI framework, featuring high performance and low resource usage.
+
+Currently supports Windows only.
+
+Main window supports **drag to move**, **double-click to open config**, and **right-click context menu** (open config / close).
+
+Still improving, but basically functional.
+
 ## Key Features
-* **Real-time Performance**: Built with Rust, ensuring imperceptible latency between key triggers and display.
-* **Lightweight**: Extremely low system resource usage, ensuring it won't affect your gameplay performance.
-* **UI Framework**: Uses Slint UI, providing a clean and easily customizable interface.
-* **Open Source License**: This project is released under the GNU GPLv3 open-source license.
+
+* **Real-time Performance**: Built with Rust and native Windows Raw Input, 60fps smooth rendering.
+* **Key Visualization**: Waterfall flow animation, customizable key layout, color, size, and opacity.
+* **Flexible Config**: Graphical configuration window with Drag & Drop key positioning.
+* **Multi-Select Editing**: Ctrl+Click to select multiple keys, batch move/resize/color/opacity/bar width.
+* **Snap & Collision**: Keys snap to alignment guides and avoid overlap during drag.
+* **Transparent Window**: Main window has transparent background with click-through for uninterrupted gameplay.
+* **Lightweight**: Minimal system resource usage, won't affect game performance.
+
 ## Tech Stack
+
 * **Core Language**: Rust
-* **UI Framework**: Slint
+* **UI Framework**: Slint 1.16
+* **Input Capture**: Windows Raw Input API (low-latency keyboard hook)
+* **Window Management**: winit window system
+
 ## Getting Started
+
 ### Prerequisites
-Before compiling or running this project, please ensure your system has the following installed:
-* [Rust programming environment](https://www.rust-lang.org/tools/install) (including Cargo)
+
+Ensure [Rust programming environment](https://www.rust-lang.org/tools/install) (including Cargo) is installed.
+
 ### Build and Run
-1. Clone the repository to your local machine:
+
 ```bash
 git clone https://github.com/lixiaapp/VSRG-KeyVisualizer.git
 cd VSRG-KeyVisualizer
+cargo run --release
 ```
-2. Run the project:
-```bash
-cargo run
-```
-## Configuration
-You can customize the layout and style of the key display through the `config.json` file in the root directory (please adjust according to the actual configuration items of the project).
+
+## Usage
+
+### Main Window
+- **Left-click drag**: Move the window
+- **Double-click**: Open configuration window
+- **Right-click**: Context menu (open config / close)
+
+### Configuration Window
+- **Canvas drag**: Drag keys to reposition (snap-to-grid enabled)
+- **Ctrl+Click**: Multi-select keys
+- **Right panel**: Edit X/Y position, width/height, pressed color, opacity, bar width percentage
+- **Multi-select editing**: Batch edit properties for all selected keys
+- **Delete key / button**: Delete selected keys (with confirmation dialog, Enter to confirm, ESC to cancel)
+- **+ Add Key**: Add a new key (press any key to bind)
+
+### Configuration
+
+Settings are saved in `config.json`, including key layout, colors, flow direction and speed. Can be adjusted graphically via the configuration window.
+
 ## License
-This project is distributed under the **GNU General Public License v3.0 (GPLv3)**. This means:
-* You are free to use, modify, and distribute this software.
-* If you modify the code and distribute it, your derivative works must also be open-sourced under the GPLv3 license.
-For details, please refer to the [LICENSE](LICENSE) file.
+
+This project is distributed under the **GNU General Public License v3.0 (GPLv3)**.
+
+See the [LICENSE](LICENSE) file for details.
