@@ -54,6 +54,7 @@ export component SettingsWindow inherits Window {
     callback update_key_bar_width_percent(int, int);
     /// 多选删除：弹出确认对话框，确认后删除所有选中的按键
     callback delete_selected_keys();
+    in-out property <bool> confirm_delete_visible: false;
 
     VerticalLayout {
         padding: 15px;
@@ -79,6 +80,8 @@ export component SettingsWindow inherits Window {
                             Math.round(self.pressed-x / 1px), 
                             Math.round(self.pressed-y / 1px),
                             event.modifiers.control);
+                        // 点击画布时让 key_handler 获得焦点，确保 Delete 键可用
+                        key_handler.focus();
                     }
                     if (event.kind == PointerEventKind.up) {
                         debug("[Canvas TA] Pointer Up");
@@ -278,7 +281,7 @@ export component SettingsWindow inherits Window {
                         }
 
                         current_col_input := LineEdit {
-                            text: root.current_color;
+                            text <=> root.current_color;
                             enabled: root.selected_index != -1;
                             edited => {
                                 root.current_color = self.text;
@@ -294,7 +297,7 @@ export component SettingsWindow inherits Window {
                         }
 
                         SpinBox {
-                            value: root.current_opacity_percent;
+                            value <=> root.current_opacity_percent;
                             enabled: root.selected_index != -1;
                             minimum: 1;
                             maximum: 100;
@@ -311,7 +314,7 @@ export component SettingsWindow inherits Window {
                         }
 
                         current_bar_wp_input := SpinBox {
-                            value: root.current_bar_width_percent;
+                            value <=> root.current_bar_width_percent;
                             enabled: root.selected_index != -1;
                             minimum: 10;
                             maximum: 100;
@@ -496,7 +499,8 @@ export component SettingsWindow inherits Window {
                 text: "Delete Selected Key";
                 enabled: root.selected_index != -1;
                 clicked => {
-                    root.delete_selected_keys();
+                    root.confirm_delete_visible = true;
+                    confirm_fs.focus();
                 }
             }
 
@@ -516,10 +520,89 @@ export component SettingsWindow inherits Window {
 
             key-pressed(ev) => {
                 if (ev.text == "" || ev.text == "\u{7f}") { // Delete 键
-                    root.delete_selected_keys();
+                    root.confirm_delete_visible = true;
+                    confirm_fs.focus();
                     accept
                 } else { reject }
             }
+        }
+    }
+
+    // ====== 删除确认弹窗 ======
+    if root.confirm_delete_visible : Rectangle {
+        x: 0; y: 0;
+        width: parent.width; height: parent.height;
+        background: #00000080;
+
+        // 弹窗背景拦截点击（防止穿透到画布触发拖拽）
+        ta := TouchArea { }
+
+        Rectangle {
+            width: 320px; height: 140px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: #333333;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #555555;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                alignment: center;
+
+                Text {
+                    text: "Confirm to delete the selected button?";
+                    color: white;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: "Enter to confirm / ESC to cancel / Delete to confirm";
+                    color: #888888;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+
+                HorizontalLayout {
+                    spacing: 20px;
+                    alignment: center;
+
+                    Button {
+                        text: "Cancel";
+                        clicked => { root.confirm_delete_visible = false; }
+                    }
+
+                    Button {
+                        text: "Confirm Delete";
+                        primary: true;
+                        clicked => {
+                            root.confirm_delete_visible = false;
+                            root.delete_selected_keys();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 全局键盘监听：仅在弹窗可见时处理 Enter/ESC
+    confirm_fs := FocusScope {
+        enabled: root.confirm_delete_visible;
+        key-pressed(ev) => {
+            if (ev.text == "\u{1b}") { // ESC 取消
+                root.confirm_delete_visible = false;
+                accept
+            } else if (ev.text == "\u{7f}" || ev.text == "") { // Delete
+                root.delete_selected_keys();
+                root.confirm_delete_visible = false;
+                accept
+            } else if (ev.text == "\n" || ev.text == "\u{d}") { // Enter 确认
+                root.confirm_delete_visible = false;
+                root.delete_selected_keys();
+                accept
+            } else { reject }
         }
     }
 

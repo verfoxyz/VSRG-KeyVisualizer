@@ -6,7 +6,15 @@ export component KeyCaptureDialog inherits Window {
     height: 150px;
     always-on-top: true;
     callback key-recorded(string, string);
+    /// 用户按下 ESC 时触发，前端自行处理关闭
+    callback escape-pressed();
     in-out property <string> detected-key: "Please press the key you wish to bind...";
+
+    // 窗口初始化时让 FocusScope 获得焦点
+    init => { fs.focus(); 
+        debug("test1");
+    }
+
     VerticalLayout {
         alignment: center;
         spacing: 10px;
@@ -22,6 +30,25 @@ export component KeyCaptureDialog inherits Window {
             font-size: 12px;
             color: #aaaaaa;
             horizontal-alignment: center;
+        }
+    }
+    // 前端监听 ESC 键，避免后端处理；失去焦点时自动关闭
+    fs := FocusScope {
+        key-pressed(ev) => {
+            if (ev.text == "\u{1b}") { // ESC
+                debug("test2");
+                root.escape-pressed();
+                accept
+            } else { reject }
+        }
+    }
+    
+    // 监听 FocusScope 的 has-focus 属性，失去焦点时关闭窗口
+    property <bool> focused: fs.has-focus;
+    changed focused => {
+        if (!self.focused) {
+            debug("test3");
+            root.escape-pressed();
         }
     }
 }

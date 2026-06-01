@@ -90,6 +90,18 @@ pub fn setup_settings_window(
         state_add.capture_mode.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(s) = s_weak.upgrade() { s.set_capturing_mode(true); }
         let capture_dialog = KeyCaptureDialog::new().unwrap();
+        let dialog_weak = capture_dialog.as_weak();
+
+        // 前端 ESC 关闭：避免后端处理
+        let state_esc = state_add.clone();
+        let s_esc = s_weak.clone();
+        capture_dialog.on_escape_pressed(move || {
+            state_esc.capture_mode.store(false, std::sync::atomic::Ordering::SeqCst);
+            if let Some(s) = s_esc.upgrade() { s.set_capturing_mode(false); }
+            if let Some(d) = dialog_weak.upgrade() { d.hide().unwrap(); }
+            *state_esc.dialog_holder.lock().unwrap() = None;
+        });
+
         capture_dialog.show().unwrap();
         *state_add.dialog_holder.lock().unwrap() = Some(capture_dialog.as_weak());
     });

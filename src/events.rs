@@ -12,13 +12,7 @@ impl MacroRecorder {
     fn process(event: (&str, bool), state: &AppState) {
         let (rdev_name, is_press) = event;
         if !is_press { return; }
-        if rdev_name == "Escape" {
-            state.capture_mode.store(false, Ordering::SeqCst);
-            if let Some(s) = state.settings_holder.lock().unwrap().as_ref().and_then(|s| s.upgrade()) { s.set_capturing_mode(false); }
-            if let Some(d) = state.dialog_holder.lock().unwrap().as_ref().and_then(|d| d.upgrade()) { d.hide().unwrap(); }
-            *state.dialog_holder.lock().unwrap() = None;
-            return;
-        }
+        // 注意：Escape 键已由 KeyCaptureDialog 前端 FocusScope 处理，不再需要后端处理
 
         // 同时写入 temp_config 和 config，确保主窗口瀑布流能立即看到新按键
         let new_key_cfg = {

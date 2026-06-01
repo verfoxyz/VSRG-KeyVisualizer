@@ -22,6 +22,7 @@ pub fn win_vkey_to_rdev_str(vkey: u16) -> &'static str {
         0xDC => "BackSlash",
         0xDD => "CloseBracket",
         0xDE => "Quote",
+        0x2E => "Delete",
 
         // 2. A-Z (0x41 - 0x5A)：范围匹配 + 数组偏移查表
         0x41..=0x5A => {
