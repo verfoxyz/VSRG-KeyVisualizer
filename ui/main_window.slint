@@ -112,6 +112,7 @@ export component MainWindow inherits Window {
         y: 0px;
         width: 100%;
         height: 100%;
+        
 
         pointer-event(event) => {
             if (event.button == PointerEventButton.left && event.kind == PointerEventKind.down) {
@@ -144,6 +145,19 @@ export component MainWindow inherits Window {
         x: root.context_menu_x;
         y: root.context_menu_y;
         width: 160px;
+        close-policy: close-on-click-outside;
+
+        // PopupWindow 显示时让 FocusScope 立即获得焦点
+        init => { fs.focus(); }
+
+        // 监听 has-focus，失去焦点时关闭菜单（借鉴 KeyCaptureDialog 实现）
+        property <bool> focused: fs.has-focus;
+        changed focused => {
+            if (!self.focused) {
+                debug("test4");
+                context_menu.close();
+            }
+        }
 
         Rectangle {
             background: #2b2b2b;
@@ -155,10 +169,9 @@ export component MainWindow inherits Window {
                 padding: 4px;
                 spacing: 2px;
 
-                // 示例：将菜单项的 Rectangle 修改为支持状态高亮
+                // 选项 1：打开配置
                 TouchArea {
                     height: 32px;
-                    // 使用变量暂存 hover 和 pressed 状态
                     property <bool> is_hovered: self.has-hover;
                     property <bool> is_pressed: self.pressed;
 
@@ -170,13 +183,12 @@ export component MainWindow inherits Window {
                     Rectangle {
                         width: 100%;
                         height: 100%;
-                        // 核心：点击时变深色，悬停时变浅色，平时透明
                         background: is_pressed ? #444444 : (is_hovered ? #3a3a3a : transparent);
-                        border-radius: 4px; // 加上圆角更自然
+                        border-radius: 4px;
                         
                         Text {
                             x: 10px;
-                            text: "打开配置";
+                            text: "Open Settings";
                             color: white;
                             vertical-alignment: center;
                             font-size: 14px;
@@ -204,7 +216,7 @@ export component MainWindow inherits Window {
                         background: transparent;
                         Text {
                             x: 10px;
-                            text: "关闭";
+                            text: "Exit";
                             color: #ff6666;
                             vertical-alignment: center;
                             font-size: 14px;
@@ -213,5 +225,8 @@ export component MainWindow inherits Window {
                 }
             }
         }
+
+        // FocusScope 用于监听菜单焦点状态
+        fs := FocusScope { }
     }
 }

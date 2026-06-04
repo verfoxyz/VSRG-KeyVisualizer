@@ -1,5 +1,5 @@
 // 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
-#![cfg_attr(windows, windows_subsystem = "windows")]
+//#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod state;
 mod gui {
@@ -449,7 +449,7 @@ fn create_settings_window(
 /// ======================================== MAIN ========================================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(tracing::Level::DEBUG)
         .init();
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
