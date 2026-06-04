@@ -387,42 +387,62 @@ fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
     (width, height)
 }
 
-/// 从 AppConfig 恢复窗口位置（含多屏边界检测）
+/// 检查窗口中心点是否在主显示器的可见范围内
+/// 如果中心点超出屏幕范围，返回 true（需要重置位置）
+fn is_window_center_outside(
+    win_x: i32,
+    win_y: i32,
+    win_w: u32,
+    win_h: u32,
+    screen_w: u32,
+    screen_h: u32,
+) -> bool {
+    let cx = win_x + (win_w / 2) as i32;
+    let cy = win_y + (win_h / 2) as i32;
+    cx < 0 || cy < 0 || cx as u32 > screen_w || cy as u32 > screen_h
+}
+
+/// 计算窗口尺寸（由 calculate_window_size 复用）
+fn get_window_size(cfg: &AppConfig) -> (u32, u32) {
+    let (w, h) = calculate_window_size(cfg);
+    (w as u32, h as u32)
+}
+
+/// 从 AppConfig 恢复窗口位置
+/// 规则：计算窗口中心点，如果中心点超出主显示器范围则重置居中
 fn restore_window_position(winit_window: &winit::window::Window, cfg: &AppConfig) {
     let (saved_x, saved_y) = match (cfg.window_x, cfg.window_y) {
         (Some(x), Some(y)) => (x, y),
         _ => { // 无保存记录，居中显示
             if let Some(monitor) = winit_window.primary_monitor() {
                 let size = monitor.size();
-                let win_size = winit_window.outer_size();
-                let cx = (size.width.saturating_sub(win_size.width) / 2) as i32;
-                let cy = (size.height.saturating_sub(win_size.height) / 2) as i32;
+                let win_size = calculate_window_size(cfg);
+                let cx = (size.width.saturating_sub(win_size.0 as u32) / 2) as i32;
+                let cy = (size.height.saturating_sub(win_size.1 as u32) / 2) as i32;
                 winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(cx, cy));
             }
             return;
         }
     };
 
-    // 多屏边界检测：检查保存的 (x,y) 是否在某个显示器的边界内
-    let is_on_any_monitor = winit_window.available_monitors().any(|m| {
-        let pos = m.position();
-        let size = m.size();
-        saved_x >= pos.x
-            && saved_x < pos.x + size.width as i32
-            && saved_y >= pos.y
-            && saved_y < pos.y + size.height as i32
-    });
+    // 用 calculate_window_size 算出窗口尺寸
+    let (win_w, win_h) = get_window_size(cfg);
 
-    if is_on_any_monitor {
-        winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(saved_x, saved_y));
-    } else {
-        // 超出所有屏幕，回退到主显示器居中
-        if let Some(monitor) = winit_window.primary_monitor() {
-            let size = monitor.size();
-            let win_size = winit_window.outer_size();
-            let cx = (size.width.saturating_sub(win_size.width) / 2) as i32;
-            let cy = (size.height.saturating_sub(win_size.height) / 2) as i32;
+    // 检查窗口中心点是否超出屏幕
+    if let Some(monitor) = winit_window.primary_monitor() {
+        let size = monitor.size();
+        if is_window_center_outside(saved_x, saved_y, win_w, win_h, size.width, size.height) {
+            // 中心点超出屏幕，重置居中
+            let cx = (size.width.saturating_sub(win_w) / 2) as i32;
+            let cy = (size.height.saturating_sub(win_h) / 2) as i32;
             winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(cx, cy));
+        } else {
+            winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(saved_x, saved_y));
+        }
+    } else {
+        // 没有显示器信息，保守恢复
+        if saved_x >= 0 && saved_y >= 0 {
+            winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(saved_x, saved_y));
         }
     }
 }

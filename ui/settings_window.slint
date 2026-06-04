@@ -1,4 +1,4 @@
-import { Button, LineEdit, SpinBox, CheckBox } from "std-widgets.slint";
+import { Button, LineEdit, SpinBox, CheckBox, ScrollView } from "std-widgets.slint";
 import { KeyData } from "key_data.slint";
 
 export component SettingsWindow inherits Window {
@@ -32,6 +32,13 @@ export component SettingsWindow inherits Window {
     in-out property <int> flow_speed: 4;
     in-out property <bool> front_line_emit: false;
 
+    // ====== Profile 相关属性和回调 ======
+    in property <[string]> profile_list;
+    in-out property <int> profile_selected: -1;
+    in property <string> current_profile_name;
+    callback switch_to_profile(int);
+    callback add_new_profile();
+
     // 暴露纯单向的事件意图通知接口
     callback handle_canvas_pointer_down(int, int, bool);
     callback update_key_position(int, int, int, int, int);
@@ -56,474 +63,553 @@ export component SettingsWindow inherits Window {
     callback delete_selected_keys();
     in-out property <bool> confirm_delete_visible: false;
 
-    VerticalLayout {
+    HorizontalLayout {
         padding: 15px;
         spacing: 15px;
-        Text {
-            text: "Location Preview (Drag to move, Click to select)";
-            color: #aaa;
-        }
 
-        preview_box := Rectangle {
-            min-height: 180px;
-            min-width: 560px;
-            background: #1a1a1a;
-            clip: true;
-
-            // 1. 将 TouchArea 铺满整个画布，作为全局鼠标事件拦截器
-            canvas_ta := TouchArea {
-                pointer-event(event) => {
-                    if (event.kind == PointerEventKind.down) {
-                        debug("[Canvas TA] Pointer Down at:", Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
-                        // 将 raw 画布坐标发给 Rust 端做 hit-test 选中
-                        root.handle_canvas_pointer_down(
-                            Math.round(self.pressed-x / 1px), 
-                            Math.round(self.pressed-y / 1px),
-                            event.modifiers.control);
-                        // 点击画布时让 key_handler 获得焦点，确保 Delete 键可用
-                        key_handler.focus();
-                    }
-                    if (event.kind == PointerEventKind.up) {
-                        debug("[Canvas TA] Pointer Up");
-                    }
-                }
-
-                moved => {
-                    if (root.selected_index >= 0 && self.pressed) {
-                        // 发送 raw 画布坐标，Rust 端减去拖拽偏移计算目标位置
-                        root.update_key_position(
-                            root.selected_index,
-                            Math.round(self.mouse-x / 1px),
-                            Math.round(self.mouse-y / 1px),
-                            Math.round(preview_box.width / 1px),
-                            Math.round(preview_box.height / 1px));
-                    }
-                }
-            }
-
-            // 2. 具体的按键渲染（仅负责呈现，内部不再放置带有移动逻辑的 TouchArea）
-            //    高亮逻辑：选中（selected_index == i 或 key.selected == true）时显示选中样式
-            for key[i] in root.root_preview_keys: Rectangle {
-                x: key.x - root.key_margin_width * 1px;
-                y: key.y - root.key_margin_width * 1px;
-                width: key.w + root.key_margin_width * 2px;
-                height: key.h + root.key_margin_width * 2px;
-                clip: true;
-
-                border-width: (root.selected_index == i || key.selected) ? 3px : 1px;
-                border-color: (root.selected_index == i || key.selected) ? #00FFCC : #555555;
-                background: (root.selected_index == i || key.selected) ? #4A90E240 : transparent;
-
-                Rectangle {
-                    x: root.key_margin_width * 1px;
-                    y: root.key_margin_width * 1px;
-                    width: key.w;
-                    height: key.h;
-                    border-width: 1px;
-                    border-color: #222222;
-                    background: (root.selected_index == i || key.selected) ? #4A90E2 : root.global_key_color;
-
-                    Text {
-                        text: key.display_name;
-                        color: white;
-                        x: (parent.width - self.width) / 2;
-                        y: (parent.height - self.height) / 2;
-                    }
-                }
-            }
-
-            Button {
-                text: "+ Add Key";
-                x: parent.width - 110px;
-                y: parent.height - 40px;
-                clicked => {
-                    root.add_new_key();
-                }
-            }
-        }
-        // 参数配置
-        // ----------------------------------------------------------
-        Text {
-            text: "Parameter Config";
-            color: #aaa;
-        }
-
-        FocusScope {
-            width: 180px;
+        // ====== 左侧：Profile 列表 ======
+        profile_panel := Rectangle {
+            width: 200px;
+            horizontal-stretch: 0;
+            background: #1e1e1e;
+            border-radius: 6px;
 
             VerticalLayout {
-                padding: 12px;
+                padding: 10px;
                 spacing: 8px;
-                alignment: start;
 
-                // 标题
                 Text {
-                    text: "Key Properties";
+                    text: "Profiles";
+                    color: #aaa;
                     font-size: 14px;
-                    color: #EEEEEE;
                     font-weight: 700;
                 }
 
-                // 外层水平布局：分为左右两列
-                HorizontalLayout {
-                    spacing: 8px;
+                Rectangle {
+                    //width: 100%;
+                    height: 1px;
+                    background: #444;
+                }
 
-                    // --- 左侧列：X 和 Y ---
+                // Profile 列表区域
+                ScrollView {
+                    //width: 100%;
                     VerticalLayout {
                         spacing: 4px;
-
-                        HorizontalLayout {
-                            spacing: 4px;
-                            alignment: center;
-
-                            Text {
-                                text: "X:";
-                                color: #AAAAAA;
-                                vertical-alignment: center;
-                            }
-
-                            current_x_input := SpinBox {
-                                value <=> root.current_x;
-                                minimum: -9999;
-                                maximum: 9999;
-                                enabled: root.selected_index != -1;
-                                edited => {
-                                    root.update-key_position_x(
-                                        root.selected_index,
-                                        self.value,
-                                        Math.round(preview_box.width / 1px),
-                                        Math.round(preview_box.height / 1px));
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 4px;
-                            alignment: center;
+                        for p[i] in root.profile_list: Rectangle {
+                            //width: 100%;
+                            height: 32px;
+                            background: (i == root.profile_selected) ? #4A90E260 : transparent;
+                            border-radius: 4px;
+                            border-width: 1px;
+                            border-color: (i == root.profile_selected) ? #4A90E2 : transparent;
 
                             Text {
-                                text: "Y:";
-                                color: #AAAAAA;
+                                text: p;
+                                color: (i == root.profile_selected) ? white : #ccc;
                                 vertical-alignment: center;
+                                horizontal-alignment: center;
+                                font-size: 13px;
                             }
 
-                            current_y_input := SpinBox {
-                                value <=> root.current_y;
-                                minimum: -9999;
-                                maximum: 9999;
-                                enabled: root.selected_index != -1;
-                                edited => {
-                                    root.update-key_position_y(
-                                        root.selected_index,
-                                        self.value,
-                                        Math.round(preview_box.width / 1px),
-                                        Math.round(preview_box.height / 1px));
+                            TouchArea {
+                                //width: 100%;
+                                //height: 100%;
+                                pointer-event(event) => {
+                                    if (event.kind == PointerEventKind.down) {
+                                        root.profile_selected = i;
+                                        root.switch_to_profile(i);
+                                    }
                                 }
-                            }
-                        }
-                    }
-
-                    // --- 右侧列：W 和 H ---
-                    VerticalLayout {
-                        spacing: 4px;
-
-                        HorizontalLayout {
-                            spacing: 4px;
-                            alignment: center;
-
-                            Text {
-                                text: "W:";
-                                color: #AAAAAA;
-                                vertical-alignment: center;
-                            }
-
-                            current_w_input := SpinBox {
-                                value <=> root.current_w;
-                                enabled: root.selected_index != -1;
-                                minimum: 1;
-                                edited => {
-                                    root.current_w = self.value;
-                                    root.update_key_size(root.selected_index, self.value, root.current_h);
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 4px;
-                            alignment: center;
-
-                            Text {
-                                text: "H:";
-                                color: #AAAAAA;
-                                vertical-alignment: center;
-                            }
-
-                            current_h_input := SpinBox {
-                                value <=> root.current_h;
-                                enabled: root.selected_index != -1;
-                                minimum: 1;
-                                edited => {
-                                    root.current_h = self.value;
-                                    root.update_key_size(root.selected_index, root.current_w, self.value);
-                                }
-                            }
-                        }
-                    }
-                    // --- Bar Width Percent 行 ---
-                }
-
-                GridLayout {
-                    spacing: 8px;
-                    Row {
-                        Text {
-                            text: "Pressed Color:";
-                            vertical-alignment: center;
-                            color: white;
-                        }
-
-                        current_col_input := LineEdit {
-                            text <=> root.current_color;
-                            enabled: root.selected_index != -1;
-                            edited => {
-                                root.current_color = self.text;
-                                root.update_key_color(root.selected_index, self.text);
-                            }
-                        }
-                    }
-                    Row {
-                        Text {
-                            text: "Opacity %:";
-                            vertical-alignment: center;
-                            color: white;
-                        }
-
-                        SpinBox {
-                            value <=> root.current_opacity_percent;
-                            enabled: root.selected_index != -1;
-                            minimum: 1;
-                            maximum: 100;
-                            step-size: 5;
-                            edited => {
-                                root.current_opacity_percent = self.value;
-                                root.update_key_opacity(root.selected_index, self.value);
-                            }
-                        }
-                        Text {
-                            text: "Bar W%:";
-                            color: #AAAAAA;
-                            vertical-alignment: center;
-                        }
-
-                        current_bar_wp_input := SpinBox {
-                            value <=> root.current_bar_width_percent;
-                            enabled: root.selected_index != -1;
-                            minimum: 10;
-                            maximum: 100;
-                            step-size: 5;
-                            edited => {
-                                root.current_bar_width_percent = self.value;
-                                root.update_key_bar_width_percent(root.selected_index, self.value);
                             }
                         }
                     }
                 }
-                
-            }
-        }
 
-        Rectangle {
-            width: 100%;
-            height: 1px;
-            background: #AAAAAA;
-        }
-
-        GridLayout {
-            spacing: 8px;
-
-            Row {
+                // 当前激活标识
                 Text {
-                    text: "Key Color:";
-                    vertical-alignment: center;
-                    color: white;
+                    text: "Active: " + root.current_profile_name;
+                    color: #888;
+                    font-size: 11px;
                 }
 
-                key_col_input := LineEdit {
-                    text: root.global_key_color_hex;
-                    edited => {
-                        root.global_key_color_hex = self.text;
-                        root.key_color_edited(self.text);
-                    }
-                }
-
-                Text {
-                    text: "Opacity %:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                SpinBox {
-                    value: root.global_key_opacity_percent;
-                    minimum: 1;
-                    maximum: 100;
-                    step-size: 5;
-                    edited => {
-                        root.global_key_opacity_percent = self.value;
-                        root.key_opacity_edited(self.value);
+                // 新增配置按钮
+                Button {
+                    text: "+ new profile";
+                    //width: 100%;
+                    clicked => {
+                        root.add_new_profile();
                     }
                 }
             }
         }
 
-        GridLayout {
-            spacing: 8px;
-
-            // 第1行
-                        Row {
-                Text {
-                    text: "Front-Line Emit:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                CheckBox {
-                    checked: root.front_line_emit;
-                    toggled => {
-                        root.front_line_emit = self.checked;
-                        root.front_line_emit_toggled(self.checked);
-                    }
-                }
-
-                Text {
-                    text: "All notes emit from front-line keys";
-                    color: #888888;
-                    vertical-alignment: center;
-                }
-            }
-            // 第2行 - Flow Direction 和 Speed
-            Row {
-                Text {
-                    text: "Flow Direction:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                SpinBox {
-                    value: root.flow_direction;
-                    minimum: 0;
-                    maximum: 3;
-                    step-size: 1;
-                    edited => {
-                        root.flow_direction = self.value;
-                        root.flow_direction_edited(self.value);
-                    }
-                }
-
-                Text {
-                    text: "Flow Speed (px/tick):";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                SpinBox {
-                    value: root.flow_speed;
-                    minimum: 1;
-                    maximum: 50;
-                    step-size: 1;
-                    edited => {
-                        root.flow_speed = self.value;
-                        root.flow_speed_edited(self.value);
-                    }
-                }
-            }
-
-            // 第3行 - Top Disappear Boundary 和 Key Margin Width
-            Row {
-                Text {
-                    text: "Top Disappear Boundary (px):";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                SpinBox {
-                    value: root.global_top_boundary;
-                    minimum: 0;
-                    maximum: 800;
-                    step-size: 10;
-                    edited => {
-                        root.global_top_boundary = self.value;
-                        root.top_boundary_edited(self.value);
-                    }
-                }
-
-                Text {
-                    text: "Key Margin Width (px):";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                SpinBox {
-                    value: root.key_margin_width;
-                    minimum: 0;
-                    maximum: 100;
-                    step-size: 1;
-                    edited => {
-                        root.key_margin_width = self.value;
-                        root.key_margin_edited(self.value);
-                    }
-                }
-            }
-
-            // 第4行 - Border Color
-            Row {
-                Text {
-                    text: "Border Color:";
-                    vertical-alignment: center;
-                    color: white;
-                }
-
-                border_col_input := LineEdit {
-                    text: root.global_border_color_hex;
-                    edited => {
-                        root.global_border_color_hex = self.text;
-                        root.border_color_edited(self.text);
-                    }
-                }
-                // 使用 col-span 让 LineEdit 占据后两列的位置
-                // 注意：Slint 中 col-span 需要加在元素上
-            }
-        }
-
-        HorizontalLayout {
+        // ====== 右侧：画布预览 + 参数配置 ======
+        VerticalLayout {
             spacing: 15px;
-            Button {
-                text: "Delete Selected Key";
+            horizontal-stretch: 1; // 增加这一行，强制右侧占满剩余空间
+            Text {
+                text: "Location Preview (Drag to move, Click to select)";
+                color: #aaa;
+            }
+
+            preview_box := Rectangle {
+                min-height: 180px;
+                //width: 100%;
+                background: #1a1a1a;
+                clip: true;
+
+                // 1. 将 TouchArea 铺满整个画布，作为全局鼠标事件拦截器
+                canvas_ta := TouchArea {
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            debug("[Canvas TA] Pointer Down at:", Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
+                            // 将 raw 画布坐标发给 Rust 端做 hit-test 选中
+                            root.handle_canvas_pointer_down(
+                                Math.round(self.pressed-x / 1px), 
+                                Math.round(self.pressed-y / 1px),
+                                event.modifiers.control);
+                            // 点击画布时让 key_handler 获得焦点，确保 Delete 键可用
+                            key_handler.focus();
+                        }
+                        if (event.kind == PointerEventKind.up) {
+                            debug("[Canvas TA] Pointer Up");
+                        }
+                    }
+
+                    moved => {
+                        if (root.selected_index >= 0 && self.pressed) {
+                            // 发送 raw 画布坐标，Rust 端减去拖拽偏移计算目标位置
+                            root.update_key_position(
+                                root.selected_index,
+                                Math.round(self.mouse-x / 1px),
+                                Math.round(self.mouse-y / 1px),
+                                Math.round(preview_box.width / 1px),
+                                Math.round(preview_box.height / 1px));
+                        }
+                    }
+                }
+
+                // 2. 具体的按键渲染（仅负责呈现，内部不再放置带有移动逻辑的 TouchArea）
+                //    高亮逻辑：选中（selected_index == i 或 key.selected == true）时显示选中样式
+                for key[i] in root.root_preview_keys: Rectangle {
+                    x: key.x - root.key_margin_width * 1px;
+                    y: key.y - root.key_margin_width * 1px;
+                    width: key.w + root.key_margin_width * 2px;
+                    height: key.h + root.key_margin_width * 2px;
+                    clip: true;
+
+                    border-width: (root.selected_index == i || key.selected) ? 3px : 1px;
+                    border-color: (root.selected_index == i || key.selected) ? #00FFCC : #555555;
+                    background: (root.selected_index == i || key.selected) ? #4A90E240 : transparent;
+
+                    Rectangle {
+                        x: root.key_margin_width * 1px;
+                        y: root.key_margin_width * 1px;
+                        width: key.w;
+                        height: key.h;
+                        border-width: 1px;
+                        border-color: #222222;
+                        background: (root.selected_index == i || key.selected) ? #4A90E2 : root.global_key_color;
+
+                        Text {
+                            text: key.display_name;
+                            color: white;
+                            x: (parent.width - self.width) / 2;
+                            y: (parent.height - self.height) / 2;
+                        }
+                    }
+                }
+
+                Button {
+                    text: "+ Add Key";
+                    x: parent.width - 110px;
+                    y: parent.height - 40px;
+                    clicked => {
+                        root.add_new_key();
+                    }
+                }
+            }
+            // 参数配置
+            // ----------------------------------------------------------
+            Text {
+                text: "Parameter Config";
+                color: #aaa;
+            }
+
+            FocusScope {
+                //width: 100%;
+                VerticalLayout {
+                    padding: 12px;
+                    spacing: 8px;
+                    alignment: start;
+                    // 标题
+                    Text {
+                        text: "Key Properties";
+                        font-size: 14px;
+                        color: #EEEEEE;
+                        font-weight: 700;
+                    }
+
+                    // 外层水平布局：分为左右两列
+                    HorizontalLayout {
+                        spacing: 8px;
+
+                        // --- 左侧列：X 和 Y ---
+                        VerticalLayout {
+                            spacing: 4px;
+
+                            HorizontalLayout {
+                                spacing: 4px;
+                                alignment: center;
+
+                                Text {
+                                    text: "X:";
+                                    color: #AAAAAA;
+                                    vertical-alignment: center;
+                                }
+
+                                current_x_input := SpinBox {
+                                    value <=> root.current_x;
+                                    minimum: -9999;
+                                    maximum: 9999;
+                                    enabled: root.selected_index != -1;
+                                    edited => {
+                                        root.update-key_position_x(
+                                            root.selected_index,
+                                            self.value,
+                                            Math.round(preview_box.width / 1px),
+                                            Math.round(preview_box.height / 1px));
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 4px;
+                                alignment: center;
+
+                                Text {
+                                    text: "Y:";
+                                    color: #AAAAAA;
+                                    vertical-alignment: center;
+                                }
+
+                                current_y_input := SpinBox {
+                                    value <=> root.current_y;
+                                    minimum: -9999;
+                                    maximum: 9999;
+                                    enabled: root.selected_index != -1;
+                                    edited => {
+                                        root.update-key_position_y(
+                                            root.selected_index,
+                                            self.value,
+                                            Math.round(preview_box.width / 1px),
+                                            Math.round(preview_box.height / 1px));
+                                    }
+                                }
+                            }
+                        }
+
+                        // --- 右侧列：W 和 H ---
+                        VerticalLayout {
+                            spacing: 4px;
+
+                            HorizontalLayout {
+                                spacing: 4px;
+                                alignment: center;
+
+                                Text {
+                                    text: "W:";
+                                    color: #AAAAAA;
+                                    vertical-alignment: center;
+                                }
+
+                                current_w_input := SpinBox {
+                                    value <=> root.current_w;
+                                    enabled: root.selected_index != -1;
+                                    minimum: 1;
+                                    edited => {
+                                        root.current_w = self.value;
+                                        root.update_key_size(root.selected_index, self.value, root.current_h);
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                spacing: 4px;
+                                alignment: center;
+
+                                Text {
+                                    text: "H:";
+                                    color: #AAAAAA;
+                                    vertical-alignment: center;
+                                }
+
+                                current_h_input := SpinBox {
+                                    value <=> root.current_h;
+                                    enabled: root.selected_index != -1;
+                                    minimum: 1;
+                                    edited => {
+                                        root.current_h = self.value;
+                                        root.update_key_size(root.selected_index, root.current_w, self.value);
+                                    }
+                                }
+                            }
+                        }
+                        // --- Bar Width Percent 行 ---
+                    }
+
+                    GridLayout {
+                        spacing: 8px;
+                        Row {
+                            Text {
+                                text: "Pressed Color:";
+                                vertical-alignment: center;
+                                color: white;
+                            }
+
+                            current_col_input := LineEdit {
+                                text <=> root.current_color;
+                                enabled: root.selected_index != -1;
+                                edited => {
+                                    root.current_color = self.text;
+                                    root.update_key_color(root.selected_index, self.text);
+                                }
+                            }
+                        }
+                        Row {
+                            Text {
+                                text: "Opacity %:";
+                                vertical-alignment: center;
+                                color: white;
+                            }
+
+                            SpinBox {
+                                value <=> root.current_opacity_percent;
+                                enabled: root.selected_index != -1;
+                                minimum: 1;
+                                maximum: 100;
+                                step-size: 5;
+                                edited => {
+                                    root.current_opacity_percent = self.value;
+                                    root.update_key_opacity(root.selected_index, self.value);
+                                }
+                            }
+                            Text {
+                                text: "Bar W%:";
+                                color: #AAAAAA;
+                                vertical-alignment: center;
+                            }
+
+                            current_bar_wp_input := SpinBox {
+                                value <=> root.current_bar_width_percent;
+                                enabled: root.selected_index != -1;
+                                minimum: 10;
+                                maximum: 100;
+                                step-size: 5;
+                                edited => {
+                                    root.current_bar_width_percent = self.value;
+                                    root.update_key_bar_width_percent(root.selected_index, self.value);
+                                }
+                            }
+                        }
+                    }
+                    
+                }
+            }
+
+            Rectangle {
+                //width: 100%;
+                height: 1px;
+                background: #AAAAAA;
+            }
+
+            GridLayout {
+                spacing: 8px;
+
+                Row {
+                    Text {
+                        text: "Key Color:";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    key_col_input := LineEdit {
+                        text: root.global_key_color_hex;
+                        edited => {
+                            root.global_key_color_hex = self.text;
+                            root.key_color_edited(self.text);
+                        }
+                    }
+
+                    Text {
+                        text: "Opacity %:";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    SpinBox {
+                        value: root.global_key_opacity_percent;
+                        minimum: 1;
+                        maximum: 100;
+                        step-size: 5;
+                        edited => {
+                            root.global_key_opacity_percent = self.value;
+                            root.key_opacity_edited(self.value);
+                        }
+                    }
+                }
+            }
+
+            GridLayout {
+                spacing: 8px;
+
+                // 第1行
+                Row {
+                    Text {
+                        text: "Front-Line Emit:";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    CheckBox {
+                        checked: root.front_line_emit;
+                        toggled => {
+                            root.front_line_emit = self.checked;
+                            root.front_line_emit_toggled(self.checked);
+                        }
+                    }
+
+                    Text {
+                        text: "All notes emit from front-line keys";
+                        color: #888888;
+                        vertical-alignment: center;
+                    }
+                }
+                // 第2行 - Flow Direction 和 Speed
+                Row {
+                    Text {
+                        text: "Flow Direction:";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    SpinBox {
+                        value: root.flow_direction;
+                        minimum: 0;
+                        maximum: 3;
+                        step-size: 1;
+                        edited => {
+                            root.flow_direction = self.value;
+                            root.flow_direction_edited(self.value);
+                        }
+                    }
+
+                    Text {
+                        text: "Flow Speed (px/tick):";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    SpinBox {
+                        value: root.flow_speed;
+                        minimum: 1;
+                        maximum: 50;
+                        step-size: 1;
+                        edited => {
+                            root.flow_speed = self.value;
+                            root.flow_speed_edited(self.value);
+                        }
+                    }
+                }
+
+                // 第3行 - Top Disappear Boundary 和 Key Margin Width
+                Row {
+                    Text {
+                        text: "Top Disappear Boundary (px):";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    SpinBox {
+                        value: root.global_top_boundary;
+                        minimum: 0;
+                        maximum: 800;
+                        step-size: 10;
+                        edited => {
+                            root.global_top_boundary = self.value;
+                            root.top_boundary_edited(self.value);
+                        }
+                    }
+
+                    Text {
+                        text: "Key Margin Width (px):";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    SpinBox {
+                        value: root.key_margin_width;
+                        minimum: 0;
+                        maximum: 100;
+                        step-size: 1;
+                        edited => {
+                            root.key_margin_width = self.value;
+                            root.key_margin_edited(self.value);
+                        }
+                    }
+                }
+
+                // 第4行 - Border Color
+                Row {
+                    Text {
+                        text: "Border Color:";
+                        vertical-alignment: center;
+                        color: white;
+                    }
+
+                    border_col_input := LineEdit {
+                        text: root.global_border_color_hex;
+                        edited => {
+                            root.global_border_color_hex = self.text;
+                            root.border_color_edited(self.text);
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 15px;
+                Button {
+                    text: "Delete Selected Key";
+                    enabled: root.selected_index != -1;
+                    clicked => {
+                        root.confirm_delete_visible = true;
+                        confirm_fs.focus();
+                    }
+                }
+
+                Button {
+                    text: "Save Config & Close";
+                    primary: true;
+                    clicked => {
+                        root.save_config();
+                    }
+                }
+            }
+
+            // Delete 键盘快捷键：弹出确认框后回车确认
+            key_handler := FocusScope {
+                // 当有选中按键时，捕获 Delete/Backspace 键触发删除对话框
                 enabled: root.selected_index != -1;
-                clicked => {
-                    root.confirm_delete_visible = true;
-                    confirm_fs.focus();
+
+                key-pressed(ev) => {
+                    if (ev.text == "" || ev.text == "\u{7f}") { // Delete 键
+                        root.confirm_delete_visible = true;
+                        confirm_fs.focus();
+                        accept
+                    } else { reject }
                 }
-            }
-
-            Button {
-                text: "Save Config & Close";
-                primary: true;
-                clicked => {
-                    root.save_config();
-                }
-            }
-        }
-
-        // Delete 键盘快捷键：弹出确认框后回车确认
-        key_handler := FocusScope {
-            // 当有选中按键时，捕获 Delete/Backspace 键触发删除对话框
-            enabled: root.selected_index != -1;
-
-            key-pressed(ev) => {
-                if (ev.text == "" || ev.text == "\u{7f}") { // Delete 键
-                    root.confirm_delete_visible = true;
-                    confirm_fs.focus();
-                    accept
-                } else { reject }
             }
         }
     }

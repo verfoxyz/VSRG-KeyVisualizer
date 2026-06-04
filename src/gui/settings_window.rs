@@ -1,8 +1,22 @@
 // src/windows/settings_window.rs
 use crate::calculate_window_size;
+use crate::configs;
 use crate::state::{AppState, UIAction};
-use crate::{KeyCaptureDialog, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
-use slint::ComponentHandle;
+use crate::{AppConfig, KeyCaptureDialog, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
+use i_slint_backend_winit::WinitWindowAccessor;
+use slint::{ComponentHandle, ModelRc, VecModel, SharedString};
+use std::rc::Rc;
+use std::sync::OnceLock;
+
+/// 缓存主显示器尺寸（宽、高），首次通过 winit 异步获取后写入
+static PRIMARY_SCREEN_SIZE: OnceLock<(u32, u32)> = OnceLock::new();
+
+/// 检查窗口中心点是否超出主显示器范围
+fn is_center_outside(win_x: i32, win_y: i32, win_w: u32, win_h: u32, screen_w: u32, screen_h: u32) -> bool {
+    let cx = win_x + (win_w / 2) as i32;
+    let cy = win_y + (win_h / 2) as i32;
+    cx < 0 || cy < 0 || cx as u32 > screen_w || cy as u32 > screen_h
+}
 
 pub fn setup_settings_window(
     settings: SettingsWindow,
@@ -11,6 +25,21 @@ pub fn setup_settings_window(
 ) {
     let real_config = state.config.lock().unwrap().clone();
     *state.temp_config.lock().unwrap() = real_config.clone();
+
+    // 异步获取主显示器尺寸并缓存（仅首次）
+    if PRIMARY_SCREEN_SIZE.get().is_none() {
+        let main_weak_clone = main_ui_weak.clone();
+        slint::spawn_local(async move {
+            if let Some(main_ui) = main_weak_clone.upgrade() {
+                if let Ok(winit_window) = main_ui.window().winit_window().await {
+                    if let Some(monitor) = winit_window.primary_monitor() {
+                        let size = monitor.size();
+                        let _ = PRIMARY_SCREEN_SIZE.set((size.width, size.height));
+                    }
+                }
+            }
+        }).unwrap();
+    }
 
     // 1. 初始化渲染视图参数
     settings.set_global_top_boundary(real_config.top_boundary);
@@ -31,6 +60,87 @@ pub fn setup_settings_window(
     settings.set_front_line_emit(real_config.front_line_emit);
 
     *state.settings_holder.lock().unwrap() = Some(settings.as_weak());
+
+    // ====== 初始化 Profile 列表 ======
+    {
+        let profiles = configs::list_profiles();
+        let model: ModelRc<SharedString> = Rc::new(VecModel::from(
+            profiles.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>()
+        )).into();
+        settings.set_profile_list(model);
+    }
+
+    // 设置当前激活的 profile 名和选中索引
+    {
+        let current = state.current_profile.lock().unwrap().clone();
+        settings.set_current_profile_name(current.as_str().into());
+        let profiles = configs::list_profiles();
+        if let Some(idx) = profiles.iter().position(|p| p == &current) {
+            settings.set_profile_selected(idx as i32);
+        }
+    }
+
+    // Profile 选择回调：切换配置（不关闭窗口，不更新主窗口）
+    let settings_weak_switch = settings.as_weak();
+    let state_switch = state.clone();
+    settings.on_switch_to_profile(move |index| {
+        let profiles = configs::list_profiles();
+        if index < 0 || index as usize >= profiles.len() { return; }
+        let name = profiles[index as usize].clone();
+        if name == *state_switch.current_profile.lock().unwrap() {
+            return; // 选中的就是当前配置，不切换
+        }
+        // 放弃当前 temp_config 的未保存修改，直接加载新配置到 temp_config
+        configs::switch_profile(&name);
+        let new_config = configs::load_profile(&name).unwrap_or_else(AppConfig::default);
+        // 只更新 temp_config（预览用）和 current_profile，不动 config（等保存才更新主窗口）
+        *state_switch.temp_config.lock().unwrap() = new_config;
+        *state_switch.current_profile.lock().unwrap() = name;
+        // 刷新配置窗口预览画布
+        if let Some(s) = settings_weak_switch.upgrade() {
+            let tmp = state_switch.temp_config.lock().unwrap();
+            s.set_root_preview_keys(create_model(&tmp.keys));
+            s.set_global_top_boundary(tmp.top_boundary);
+            s.set_global_border_width(tmp.global_border_width);
+            let (key_color_rgb, key_opacity_pct) = split_alpha(&tmp.global_key_color);
+            s.set_global_key_color_hex(key_color_rgb.into());
+            s.set_global_key_opacity_percent(key_opacity_pct);
+            s.set_global_border_color_hex(tmp.global_border_color.clone().into());
+            s.set_key_margin_width(tmp.key_margin_width);
+            s.set_flow_direction(tmp.flow_direction);
+            s.set_flow_speed(tmp.flow_speed);
+            s.set_front_line_emit(tmp.front_line_emit);
+            s.set_current_profile_name(state_switch.current_profile.lock().unwrap().clone().into());
+            // 清空选中状态
+            s.set_selected_index(-1);
+            *state_switch.selected_indices.lock().unwrap() = std::collections::HashSet::new();
+        }
+    });
+
+    // "新增配置"回调：用当前配置创建新 profile
+    let settings_weak_create = settings.as_weak();
+    let state_create = state.clone();
+    settings.on_add_new_profile(move || {
+        let profiles = configs::list_profiles();
+        // 找一个不重复的名字：New Profile, New Profile 2, ...
+        let mut new_name = "New Profile".to_string();
+        let mut counter = 1;
+        while profiles.contains(&new_name) {
+            counter += 1;
+            new_name = format!("New Profile {}", counter);
+        }
+        // 用当前 temp_config 的内容创建新 profile
+        let cfg = state_create.temp_config.lock().unwrap().clone();
+        configs::create_profile(&new_name, &cfg);
+        // 刷新 profile 列表
+        let updated = configs::list_profiles();
+        let model: ModelRc<SharedString> = Rc::new(VecModel::from(
+            updated.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>()
+        )).into();
+        if let Some(s) = settings_weak_create.upgrade() {
+            s.set_profile_list(model);
+        }
+    });
 
     // 2. 将前端视图回调安全投递至 Dispatcher
     let settings_weak = settings.as_weak();
@@ -177,12 +287,8 @@ pub fn setup_settings_window(
             let mut real = state_save.config.lock().unwrap();
             let tmp = state_save.temp_config.lock().unwrap();
             
-            // 保留窗口位置（temp_config 不包含窗口位置，从 real 继承）
-            let saved_x = real.window_x;
-            let saved_y = real.window_y;
+            // temp_config 现在可能包含新配置的窗口位置（切换配置后），直接使用
             *real = tmp.clone();
-            real.window_x = saved_x;
-            real.window_y = saved_y;
 
             // 保存到当前激活的 profile
             let profile = state_save.current_profile.lock().unwrap().clone();
@@ -224,6 +330,27 @@ pub fn setup_settings_window(
                 // 3. 同步更新 UI 内部的像素宽高属性
                 main_ui.set_window_width_px(w);
                 main_ui.set_window_height_px(h);
+
+                // 3.5 用当前配置的窗口位置重新定位主窗口
+                // 规则：计算窗口中心点，超出主显示器范围则重置居中
+                if let (Some(wx), Some(wy)) = (real.window_x, real.window_y) {
+                    let (win_w, win_h) = calculate_window_size(&real);
+                    let should_reset = if let Some(&(sw, sh)) = PRIMARY_SCREEN_SIZE.get() {
+                        is_center_outside(wx, wy, win_w as u32, win_h as u32, sw, sh)
+                    } else {
+                        // 没有屏幕信息时保守处理：负坐标才重置
+                        wx < 0 || wy < 0
+                    };
+                    if should_reset {
+                        if let Some(&(sw, sh)) = PRIMARY_SCREEN_SIZE.get() {
+                            let cx = (sw.saturating_sub(win_w as u32) / 2) as i32;
+                            let cy = (sh.saturating_sub(win_h as u32) / 2) as i32;
+                            main_ui.window().set_position(slint::PhysicalPosition::new(cx, cy));
+                        }
+                    } else {
+                        main_ui.window().set_position(slint::PhysicalPosition::new(wx, wy));
+                    }
+                }
 
                 // 4. 严格使用最终的目标画布宽高 (w, h) 来计算按键比例锚点！
                 // 避免使用临时的 safe_h 导致非对称方向切换时算错相对位置
