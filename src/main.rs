@@ -1,5 +1,5 @@
 // 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
-//#![cfg_attr(windows, windows_subsystem = "windows")]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod configs;
 mod state;
@@ -469,9 +469,9 @@ fn create_settings_window(
 /// ======================================== MAIN ========================================
 fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::DEBUG)
+        .with_max_level(tracing::Level::INFO)
         .init();
-    tracing::debug!("[DEBUG] 程序启动，正在初始化...");
+    tracing::info!("[INFO] 程序启动，正在初始化...");
 
     let (tx, rx) = channel::unbounded::<MyKeyEvent>();
     let (init_config, profile_name) = load_config();

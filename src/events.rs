@@ -69,22 +69,26 @@ impl LiveVisualizer {
                     None
                 };
 
+                // 瀑布流条居中于按键边：垂直方向水平居中，水平方向垂直居中
+                let center_offset_x = (key_cfg.width - bar_w) / 2;
+                let center_offset_y = (key_cfg.height - bar_h) / 2;
+
                 let (start_x, start_y, note_w, note_h, vx, vy) = match cfg.flow_direction {
                     1 => {
                         let sy = note_start_edge.unwrap_or(key_cfg.y) + cfg.top_boundary;
-                        (key_cfg.x, sy, bar_w, 0, 0, -speed)
+                        (key_cfg.x + center_offset_x, sy, bar_w, 0, 0, -speed)
                     }
                     2 => {
                         let sx = note_start_edge.unwrap_or(key_cfg.x) + cfg.top_boundary;
-                        (sx, key_cfg.y, 0, bar_h, -speed, 0)
+                        (sx, key_cfg.y + center_offset_y, 0, bar_h, -speed, 0)
                     }
                     3 => {
                         let sx = note_start_edge.unwrap_or(key_cfg.x + key_cfg.width);
-                        (sx, key_cfg.y, 0, bar_h, speed, 0)
+                        (sx, key_cfg.y + center_offset_y, 0, bar_h, speed, 0)
                     }
                     _ => {
                         let sy = note_start_edge.unwrap_or(key_cfg.y + key_cfg.height);
-                        (key_cfg.x, sy, bar_w, 0, 0, speed)
+                        (key_cfg.x + center_offset_x, sy, bar_w, 0, 0, speed)
                     }
                 };
                 notes.push(BarNote {
