@@ -1,6 +1,7 @@
 // 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
 //#![cfg_attr(windows, windows_subsystem = "windows")]
 
+mod configs;
 mod state;
 mod gui {
     pub mod settings_window;
@@ -16,8 +17,6 @@ use serde::{Deserialize, Serialize};
 use slint::{ComponentHandle, Model, ModelRc, VecModel};
 //use std::collections::HashMap;
 use std::ffi::c_void;
-use std::fs;
-use std::path::Path;
 use std::rc::Rc;
 use std::thread;
 use tracing;
@@ -140,22 +139,23 @@ impl Default for AppConfig {
     }
 }
 
-fn load_config() -> AppConfig {
-    let path = Path::new("config.json");
-    if path.exists() {
-        let content = fs::read_to_string(path).unwrap_or_default();
-        serde_json::from_str(&content).unwrap_or_else(|_| AppConfig::default())
-    } else {
-        let config = AppConfig::default();
-        save_config(&config);
-        config
-    }
+/// 加载配置（新系统：从 configs/profiles/ 读取）
+///
+/// 首次调用时会初始化目录结构和迁移旧 config.json。
+/// 返回 (AppConfig, profile_name)。
+fn load_config() -> (AppConfig, String) {
+    configs::initialize();
+    configs::load_active_profile()
 }
 
-fn save_config(config: &AppConfig) {
-    let content = serde_json::to_string_pretty(config).unwrap();
-    fs::write("config.json", content).expect("无法写入配置文件");
+/// 保存配置到当前激活的 profile
+///
+/// 需要从外部传入 profile 名（从 AppState 获取）。
+fn save_config_to_profile(name: &str, config: &AppConfig) {
+    configs::save_profile(name, config);
 }
+
+
 
 /// 默认按键颜色（当配置文件中颜色解析失败时使用）
 const DEFAULT_KEY_COLOR: u32 = 0x4A90E2;
@@ -454,7 +454,9 @@ fn main() {
     tracing::debug!("[DEBUG] 程序启动，正在初始化...");
 
     let (tx, rx) = channel::unbounded::<MyKeyEvent>();
-    let state = AppState::new(load_config());
+    let (init_config, profile_name) = load_config();
+    tracing::info!("加载配置 profile: {}", profile_name);
+    let state = AppState::new(init_config, &profile_name);
 
     // 初始化按键位置缓存
     {
@@ -563,7 +565,7 @@ fn main() {
     ui.on_request_settings(move || {
         create_settings_window(&state_for_settings, &ui_weak_settings);
     });
-    // 保存窗口位置
+    // 保存窗口位置 + 当前 profile
     let state_for_close = state.clone();
     let ui_weak_close = ui.as_weak();
     ui.on_request_close(move || {
@@ -572,7 +574,8 @@ fn main() {
             let mut cfg = state_for_close.config.lock().unwrap();
             cfg.window_x = Some(pos.x);
             cfg.window_y = Some(pos.y);
-            save_config(&cfg);
+            let profile = state_for_close.current_profile.lock().unwrap().clone();
+            save_config_to_profile(&profile, &cfg);
         }
         slint::quit_event_loop().unwrap();
     });

@@ -1,7 +1,7 @@
 // src/windows/settings_window.rs
 use crate::calculate_window_size;
 use crate::state::{AppState, UIAction};
-use crate::{KeyCaptureDialog, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config};
+use crate::{KeyCaptureDialog, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
 use slint::ComponentHandle;
 
 pub fn setup_settings_window(
@@ -183,7 +183,10 @@ pub fn setup_settings_window(
             *real = tmp.clone();
             real.window_x = saved_x;
             real.window_y = saved_y;
-            save_config(&real);
+
+            // 保存到当前激活的 profile
+            let profile = state_save.current_profile.lock().unwrap().clone();
+            save_config_to_profile(&profile, &real);
 
             // 重建按键位置缓存
             {

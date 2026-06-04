@@ -81,10 +81,12 @@ pub struct AppState {
     pub drag_offset: Arc<Mutex<(i32, i32)>>,
     /// Ctrl 多选集合（存储按键索引）
     pub selected_indices: Arc<Mutex<HashSet<usize>>>,
+    /// 当前激活的 profile 名称（如 "default"、"4K"）
+    pub current_profile: Arc<Mutex<String>>,
 }
 
 impl AppState {
-    pub fn new(init_config: AppConfig) -> Self {
+    pub fn new(init_config: AppConfig, profile_name: &str) -> Self {
         Self {
             config: Arc::new(Mutex::new(init_config)),
             temp_config: Arc::new(Mutex::new(AppConfig::default())),
@@ -96,6 +98,7 @@ impl AppState {
             settings_holder: Arc::new(Mutex::new(None)),
             drag_offset: Arc::new(Mutex::new((0, 0))),
             selected_indices: Arc::new(Mutex::new(HashSet::new())),
+            current_profile: Arc::new(Mutex::new(profile_name.to_string())),
         }
     }
 }
@@ -113,6 +116,7 @@ impl Clone for AppState {
             settings_holder: Arc::clone(&self.settings_holder),
             drag_offset: Arc::clone(&self.drag_offset),
             selected_indices: Arc::clone(&self.selected_indices),
+            current_profile: Arc::clone(&self.current_profile),
         }
     }
 }

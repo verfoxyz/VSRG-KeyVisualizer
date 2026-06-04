@@ -1,0 +1,54 @@
+{
+  "top_boundary": 200,
+  "global_border_width": 1,
+  "global_border_color": "#555555",
+  "key_margin_width": 0,
+  "global_key_color": "#3333334C",
+  "flow_direction": 1,
+  "flow_speed": 6,
+  "front_line_emit": true,
+  "window_x": 125,
+  "window_y": 562,
+  "keys": [
+    {
+      "rdev_key_name": "KeyA",
+      "display_name": "A",
+      "x": 0,
+      "y": 0,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2FF",
+      "bar_width_percent": 100
+    },
+    {
+      "rdev_key_name": "KeyS",
+      "display_name": "S",
+      "x": 80,
+      "y": 0,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2FF",
+      "bar_width_percent": 100
+    },
+    {
+      "rdev_key_name": "SemiColon",
+      "display_name": "SemiColon",
+      "x": 160,
+      "y": 0,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2FF",
+      "bar_width_percent": 100
+    },
+    {
+      "rdev_key_name": "Quote",
+      "display_name": "Quote",
+      "x": 240,
+      "y": 0,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2FF",
+      "bar_width_percent": 100
+    }
+  ]
+}

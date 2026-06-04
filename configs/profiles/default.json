@@ -1,0 +1,54 @@
+{
+  "top_boundary": 200,
+  "global_border_width": 1,
+  "global_border_color": "#555555",
+  "key_margin_width": 10,
+  "global_key_color": "#33333366",
+  "flow_direction": 3,
+  "flow_speed": 10,
+  "front_line_emit": true,
+  "window_x": 26,
+  "window_y": 334,
+  "keys": [
+    {
+      "rdev_key_name": "KeyA",
+      "display_name": "A",
+      "x": 10,
+      "y": 10,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#FFFFFFFF",
+      "bar_width_percent": 90
+    },
+    {
+      "rdev_key_name": "KeyW",
+      "display_name": "W",
+      "x": 10,
+      "y": 110,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#FFF000FF",
+      "bar_width_percent": 80
+    },
+    {
+      "rdev_key_name": "Space",
+      "display_name": "Space",
+      "x": 110,
+      "y": 110,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2FF",
+      "bar_width_percent": 100
+    },
+    {
+      "rdev_key_name": "KeyD",
+      "display_name": "D",
+      "x": 110,
+      "y": 10,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#FFFF00FF",
+      "bar_width_percent": 90
+    }
+  ]
+}
