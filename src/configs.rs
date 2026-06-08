@@ -63,7 +63,9 @@ fn write_active_profile(name: &str) {
 #[allow(dead_code)]
 pub fn list_profiles() -> Vec<String> {
     let dir = profiles_dir();
+    tracing::debug!("[list_profiles] dir = {:?}", dir);
     if !dir.exists() {
+        tracing::debug!("[list_profiles] dir does not exist");
         return Vec::new();
     }
     let mut names: Vec<String> = match fs::read_dir(&dir) {
@@ -77,9 +79,13 @@ pub fn list_profiles() -> Vec<String> {
                     .map(|s| s.to_string())
             })
             .collect(),
-        Err(_) => Vec::new(),
+        Err(e) => {
+            tracing::debug!("[list_profiles] read_dir error: {:?}", e);
+            Vec::new()
+        }
     };
     names.sort();
+    tracing::debug!("[list_profiles] returning {} names: {:?}", names.len(), names);
     names
 }
 
@@ -154,15 +160,24 @@ pub fn create_profile(name: &str, config: &AppConfig) -> bool {
     true
 }
 
-/// 删除指定的 profile（不允许删除当前激活的 profile）
+/// 重命名 profile
+///
+/// 返回是否重命名成功（新名已存在时失败）。
+#[allow(dead_code)]
+pub fn rename_profile(old_name: &str, new_name: &str) -> bool {
+    if old_name == new_name { return true; }
+    let old_path = profile_path(old_name);
+    let new_path = profile_path(new_name);
+    if !old_path.exists() { return false; }
+    if new_path.exists() { return false; }
+    fs::rename(&old_path, &new_path).is_ok()
+}
+
+/// 删除指定的 profile（允许删除当前激活的 profile，由上层处理切换逻辑）
 ///
 /// 返回是否删除成功。
 #[allow(dead_code)]
-pub fn delete_profile(name: &str, active_name: &str) -> bool {
-    if name == active_name {
-        tracing::warn!("不允许删除当前激活的 profile: {}", name);
-        return false;
-    }
+pub fn delete_profile(name: &str, _active_name: &str) -> bool {
     let path = profile_path(name);
     if path.exists() {
         fs::remove_file(&path).expect("无法删除 profile 文件");

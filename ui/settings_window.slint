@@ -1,5 +1,6 @@
 import { Button, LineEdit, SpinBox, CheckBox, ScrollView } from "std-widgets.slint";
 import { KeyData } from "key_data.slint";
+import { ConfirmDeleteDialog, RenameDialog } from "dialogs.slint";
 
 export component SettingsWindow inherits Window {
     max-width: 1000px;
@@ -38,6 +39,10 @@ export component SettingsWindow inherits Window {
     in property <string> current_profile_name;
     callback switch_to_profile(int);
     callback add_new_profile();
+    callback rename_profile(int, string);
+    callback delete_profile(int);
+    in-out property <int> renaming_index: -1;
+    in-out property <string> renaming_text;
 
     // 暴露纯单向的事件意图通知接口
     callback handle_canvas_pointer_down(int, int, bool);
@@ -97,13 +102,25 @@ export component SettingsWindow inherits Window {
                     VerticalLayout {
                         spacing: 4px;
                         for p[i] in root.profile_list: Rectangle {
-                            //width: 100%;
                             height: 32px;
                             background: (i == root.profile_selected) ? #4A90E260 : transparent;
                             border-radius: 4px;
                             border-width: 1px;
                             border-color: (i == root.profile_selected) ? #4A90E2 : transparent;
 
+                            // 点击切换配置
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                pointer-event(event) => {
+                                    if (event.kind == PointerEventKind.down) {
+                                        root.profile_selected = i;
+                                        root.switch_to_profile(i);
+                                    }
+                                }
+                            }
+
+                            // 名称文本
                             Text {
                                 text: p;
                                 color: (i == root.profile_selected) ? white : #ccc;
@@ -112,13 +129,33 @@ export component SettingsWindow inherits Window {
                                 font-size: 13px;
                             }
 
-                            TouchArea {
-                                //width: 100%;
-                                //height: 100%;
-                                pointer-event(event) => {
-                                    if (event.kind == PointerEventKind.down) {
-                                        root.profile_selected = i;
-                                        root.switch_to_profile(i);
+                            // 重命名按钮（右上角）
+                            Rectangle {
+                                x: parent.width - 30px;
+                                y: 0px;
+                                width: 30px;
+                                height: 100%;
+                                background: transparent;
+                                border-radius: 4px;
+
+                                Text {
+                                    text: "~";
+                                    color: (i == root.profile_selected) ? #aaa : transparent;
+                                    font-size: 14px;
+                                    width: 100%;
+                                    height: 100%;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: center;
+                                }
+
+                                TouchArea {
+                                    width: 100%;
+                                    height: 100%;
+                                    pointer-event(event) => {
+                                        if (event.kind == PointerEventKind.down) {
+                                            root.renaming_index = i;
+                                            root.renaming_text = p;
+                                        }
                                     }
                                 }
                             }
@@ -133,12 +170,29 @@ export component SettingsWindow inherits Window {
                     font-size: 11px;
                 }
 
-                // 新增配置按钮
-                Button {
-                    text: "+ new profile";
-                    //width: 100%;
-                    clicked => {
-                        root.add_new_profile();
+                // 新增/删除配置按钮
+                HorizontalLayout {
+                    spacing: 4px;
+                    Button {
+                        text: "+";
+                        width: 30px;
+                        clicked => {
+                            root.add_new_profile();
+                        }
+                    }
+                    Button {
+                        text: "−";
+                        width: 30px;
+                        enabled: root.profile_selected >= 0;
+                        clicked => {
+                            root.delete_profile(root.profile_selected);
+                        }
+                    }
+                    Text {
+                        text: "new / del";
+                        color: #888;
+                        font-size: 11px;
+                        vertical-alignment: center;
                     }
                 }
             }
@@ -585,7 +639,6 @@ export component SettingsWindow inherits Window {
                     enabled: root.selected_index != -1;
                     clicked => {
                         root.confirm_delete_visible = true;
-                        confirm_fs.focus();
                     }
                 }
 
@@ -606,7 +659,6 @@ export component SettingsWindow inherits Window {
                 key-pressed(ev) => {
                     if (ev.text == "" || ev.text == "\u{7f}") { // Delete 键
                         root.confirm_delete_visible = true;
-                        confirm_fs.focus();
                         accept
                     } else { reject }
                 }
@@ -614,81 +666,28 @@ export component SettingsWindow inherits Window {
         }
     }
 
-    // ====== 删除确认弹窗 ======
-    if root.confirm_delete_visible : Rectangle {
-        x: 0; y: 0;
-        width: parent.width; height: parent.height;
-        background: #00000080;
-
-        // 弹窗背景拦截点击（防止穿透到画布触发拖拽）
-        ta := TouchArea { }
-
-        Rectangle {
-            width: 320px; height: 140px;
-            x: (parent.width - self.width) / 2;
-            y: (parent.height - self.height) / 2;
-            background: #333333;
-            border-radius: 8px;
-            border-width: 1px;
-            border-color: #555555;
-
-            VerticalLayout {
-                padding: 20px;
-                spacing: 16px;
-                alignment: center;
-
-                Text {
-                    text: "Confirm to delete the selected button?";
-                    color: white;
-                    font-size: 16px;
-                    horizontal-alignment: center;
-                }
-
-                Text {
-                    text: "Enter to confirm / ESC to cancel / Delete to confirm";
-                    color: #888888;
-                    font-size: 12px;
-                    horizontal-alignment: center;
-                }
-
-                HorizontalLayout {
-                    spacing: 20px;
-                    alignment: center;
-
-                    Button {
-                        text: "Cancel";
-                        clicked => { root.confirm_delete_visible = false; }
-                    }
-
-                    Button {
-                        text: "Confirm Delete";
-                        primary: true;
-                        clicked => {
-                            root.confirm_delete_visible = false;
-                            root.delete_selected_keys();
-                        }
-                    }
-                }
-            }
+    // ====== 弹窗 ======
+    ConfirmDeleteDialog {
+        is_visible: root.confirm_delete_visible;
+        confirmed => {
+            root.confirm_delete_visible = false;
+            root.delete_selected_keys();
+        }
+        cancelled => {
+            root.confirm_delete_visible = false;
         }
     }
 
-    // 全局键盘监听：仅在弹窗可见时处理 Enter/ESC
-    confirm_fs := FocusScope {
-        enabled: root.confirm_delete_visible;
-        key-pressed(ev) => {
-            if (ev.text == "\u{1b}") { // ESC 取消
-                root.confirm_delete_visible = false;
-                accept
-            } else if (ev.text == "\u{7f}" || ev.text == "") { // Delete
-                root.delete_selected_keys();
-                root.confirm_delete_visible = false;
-                accept
-            } else if (ev.text == "\n" || ev.text == "\u{d}") { // Enter 确认
-                root.confirm_delete_visible = false;
-                root.delete_selected_keys();
-                accept
-            } else { reject }
+    RenameDialog {
+        is_visible: root.renaming_index >= 0;
+        current_name: root.renaming_text;
+        edit_text: root.renaming_text;
+        accepted(new_name) => {
+            root.rename_profile(root.renaming_index, new_name);
+            root.renaming_index = -1;
+        }
+        cancelled => {
+            root.renaming_index = -1;
         }
     }
 

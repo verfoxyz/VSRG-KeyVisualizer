@@ -83,6 +83,8 @@ pub struct AppState {
     pub selected_indices: Arc<Mutex<HashSet<usize>>>,
     /// 当前激活的 profile 名称（如 "default"、"4K"）
     pub current_profile: Arc<Mutex<String>>,
+    /// 待删除的 profile 名称列表（保存时才真正执行删除）
+    pub pending_deletions: Arc<Mutex<Vec<String>>>,
 }
 
 impl AppState {
@@ -99,6 +101,7 @@ impl AppState {
             drag_offset: Arc::new(Mutex::new((0, 0))),
             selected_indices: Arc::new(Mutex::new(HashSet::new())),
             current_profile: Arc::new(Mutex::new(profile_name.to_string())),
+            pending_deletions: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -117,6 +120,7 @@ impl Clone for AppState {
             drag_offset: Arc::clone(&self.drag_offset),
             selected_indices: Arc::clone(&self.selected_indices),
             current_profile: Arc::clone(&self.current_profile),
+            pending_deletions: Arc::clone(&self.pending_deletions),
         }
     }
 }

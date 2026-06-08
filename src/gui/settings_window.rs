@@ -4,7 +4,7 @@ use crate::configs;
 use crate::state::{AppState, UIAction};
 use crate::{AppConfig, KeyCaptureDialog, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
 use i_slint_backend_winit::WinitWindowAccessor;
-use slint::{ComponentHandle, ModelRc, VecModel, SharedString};
+use slint::{ComponentHandle, Model, ModelRc, VecModel, SharedString};
 use std::rc::Rc;
 use std::sync::OnceLock;
 
@@ -64,19 +64,29 @@ pub fn setup_settings_window(
     // ====== 初始化 Profile 列表 ======
     {
         let profiles = configs::list_profiles();
-        let model: ModelRc<SharedString> = Rc::new(VecModel::from(
-            profiles.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>()
-        )).into();
+        tracing::debug!("[PROFILES] list_profiles() returned {} items: {:?}", profiles.len(), profiles);
+        let string_list: Vec<SharedString> = profiles.iter().map(|s| SharedString::from(s.as_str())).collect();
+        tracing::debug!("[PROFILES] SharedString list has {} items: {:?}", string_list.len(), string_list);
+        let model: ModelRc<SharedString> = Rc::new(VecModel::from(string_list)).into();
+        tracing::debug!("[PROFILES] model row_count: {}", model.row_count());
         settings.set_profile_list(model);
+        // 立即读回验证
+        let readback = settings.get_profile_list();
+        tracing::debug!("[PROFILES] readback row_count: {}", readback.row_count());
     }
 
     // 设置当前激活的 profile 名和选中索引
     {
         let current = state.current_profile.lock().unwrap().clone();
+        tracing::debug!("[PROFILES] current_profile = {:?}", current);
         settings.set_current_profile_name(current.as_str().into());
         let profiles = configs::list_profiles();
+        tracing::debug!("[PROFILES] for index lookup: profiles = {:?}", profiles);
         if let Some(idx) = profiles.iter().position(|p| p == &current) {
+            tracing::debug!("[PROFILES] setting profile_selected = {}", idx);
             settings.set_profile_selected(idx as i32);
+        } else {
+            tracing::warn!("[PROFILES] current profile {:?} not found in list!", current);
         }
     }
 
@@ -139,6 +149,87 @@ pub fn setup_settings_window(
         )).into();
         if let Some(s) = settings_weak_create.upgrade() {
             s.set_profile_list(model);
+        }
+    });
+
+    // 删除 profile 回调（预删除：加入待删列表，UI 移除，保存时才真正执行）
+    let settings_weak_delete = settings.as_weak();
+    let state_delete = state.clone();
+    settings.on_delete_profile(move |index| {
+        let profiles = configs::list_profiles();
+        if index < 0 || index as usize >= profiles.len() { return; }
+        let name = &profiles[index as usize];
+        let active = state_delete.current_profile.lock().unwrap().clone();
+        let is_active = *name == active;
+
+        // 加入待删列表
+        state_delete.pending_deletions.lock().unwrap().push(name.clone());
+
+        // 如果删除的是当前激活配置，切换到下一个
+        if is_active {
+            let next = if index + 1 < profiles.len() as i32 {
+                Some(profiles[(index + 1) as usize].clone())
+            } else if profiles.len() > 1 {
+                Some(profiles[(index - 1) as usize].clone())
+            } else {
+                None
+            };
+            if let Some(ref next) = next {
+                *state_delete.current_profile.lock().unwrap() = next.clone();
+                if let Some(cfg) = configs::load_profile(next) {
+                    *state_delete.temp_config.lock().unwrap() = cfg;
+                }
+            }
+        }
+        // 刷新 UI 列表：从真实列表中移除已标记删除的项
+        let updated: Vec<String> = configs::list_profiles().into_iter()
+            .filter(|p| !state_delete.pending_deletions.lock().unwrap().contains(p))
+            .collect();
+        let model: ModelRc<SharedString> = Rc::new(VecModel::from(
+            updated.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>()
+        )).into();
+        if let Some(s) = settings_weak_delete.upgrade() {
+            s.set_profile_list(model);
+            let tmp = state_delete.temp_config.lock().unwrap();
+            s.set_root_preview_keys(create_model(&tmp.keys));
+            s.set_selected_index(-1);
+            *state_delete.selected_indices.lock().unwrap() = std::collections::HashSet::new();
+            s.set_current_profile_name(state_delete.current_profile.lock().unwrap().clone().into());
+        }
+    });
+
+    // 重命名 profile 回调
+    let settings_weak_rename = settings.as_weak();
+    let state_rename = state.clone();
+    settings.on_rename_profile(move |index, new_name| {
+        let new_name = new_name.trim().to_string();
+        if new_name.is_empty() { return; }
+        let profiles = configs::list_profiles();
+        if index < 0 || index as usize >= profiles.len() { return; }
+        let old_name = &profiles[index as usize];
+        if old_name == &new_name { return; }
+        if configs::rename_profile(old_name, &new_name) {
+            // 如果重命名的是当前激活的配置，更新 current_profile
+            {
+                let mut cur = state_rename.current_profile.lock().unwrap();
+                if *cur == *old_name {
+                    *cur = new_name.clone();
+                    configs::switch_profile(&new_name);
+                }
+            }
+            // 刷新列表
+            let updated = configs::list_profiles();
+            let model: ModelRc<SharedString> = Rc::new(VecModel::from(
+                updated.iter().map(|s| SharedString::from(s.as_str())).collect::<Vec<_>>()
+            )).into();
+            if let Some(s) = settings_weak_rename.upgrade() {
+                s.set_profile_list(model);
+                s.set_current_profile_name(state_rename.current_profile.lock().unwrap().clone().into());
+                // 更新选中索引
+                if let Some(idx) = updated.iter().position(|p| p == &new_name) {
+                    s.set_profile_selected(idx as i32);
+                }
+            }
         }
     });
 
@@ -359,6 +450,16 @@ pub fn setup_settings_window(
                 
                 // 5. 最后投递数据模型，触发 Slint 重新绘制
                 main_ui.set_keys(key_model);
+            }
+            // 执行待删除的 profile（保存在当前配置之后，避免误删当前配置）
+            {
+                let pending = state_save.pending_deletions.lock().unwrap().clone();
+                for del_name in &pending {
+                    if *del_name != *state_save.current_profile.lock().unwrap() {
+                        configs::delete_profile(del_name, del_name);
+                    }
+                }
+                state_save.pending_deletions.lock().unwrap().clear();
             }
             s.hide().unwrap();
         }

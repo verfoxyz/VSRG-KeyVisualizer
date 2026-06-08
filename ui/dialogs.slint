@@ -1,0 +1,166 @@
+import { Button, LineEdit } from "std-widgets.slint";
+
+// ====== 删除确认弹窗 ======
+export component ConfirmDeleteDialog {
+    in property <bool> is_visible;
+    callback confirmed();
+    callback cancelled();
+
+    if root.is_visible : Rectangle {
+        x: 0; y: 0;
+        width: parent.width; height: parent.height;
+        background: #00000080;
+
+        init => { fs.focus(); }
+
+        // 弹窗背景拦截点击
+        ta := TouchArea { }
+
+        Rectangle {
+            width: 320px; height: 140px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: #333333;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #555555;
+
+            VerticalLayout {
+                padding: 20px;
+                spacing: 16px;
+                alignment: center;
+
+                Text {
+                    text: "Confirm to delete the selected button?";
+                    color: white;
+                    font-size: 16px;
+                    horizontal-alignment: center;
+                }
+
+                Text {
+                    text: "Enter to confirm / ESC to cancel / Delete to confirm";
+                    color: #888888;
+                    font-size: 12px;
+                    horizontal-alignment: center;
+                }
+
+                HorizontalLayout {
+                    spacing: 20px;
+                    alignment: center;
+
+                    Button {
+                        text: "Cancel";
+                        clicked => { root.cancelled(); }
+                    }
+
+                    Button {
+                        text: "Confirm Delete";
+                        primary: true;
+                        clicked => { root.confirmed(); }
+                    }
+                }
+            }
+        }
+    }
+
+    // 全局键盘监听：仅在弹窗可见时处理 Enter/ESC/Delete
+    fs := FocusScope {
+        enabled: root.is_visible;
+        key-pressed(ev) => {
+            if (ev.text == "\u{1b}") { // ESC 取消
+                root.cancelled();
+                accept
+            } else if (ev.text == "\u{7f}" || ev.text == "") { // Delete
+                root.confirmed();
+                accept
+            } else if (ev.text == "\n" || ev.text == "\u{d}") { // Enter 确认
+                root.confirmed();
+                accept
+            } else { reject }
+        }
+    }
+}
+
+// ====== 重命名弹窗 ======
+export component RenameDialog {
+    in property <bool> is_visible;
+    in property <string> current_name;
+    callback accepted(string);
+    callback cancelled();
+    in-out property <string> edit_text: root.current_name;
+
+    // 全局键盘监听：弹窗可见时 Enter 确认，ESC 取消
+    rename_fs := FocusScope {
+        enabled: root.is_visible;
+        key-pressed(ev) => {
+            if (ev.text == "\u{1b}") { // ESC 取消
+                root.cancelled();
+                accept
+            } else if (ev.text == "\n" || ev.text == "\u{d}") { // Enter 确认
+                root.accepted(root.edit_text);
+                accept
+            } else { reject }
+        }
+    }
+
+    if root.is_visible : Rectangle {
+        x: 0; y: 0;
+        width: parent.width; height: parent.height;
+        background: #00000080;
+
+        init => { rename_fs.focus(); }
+
+        ta2 := TouchArea { }
+
+        Rectangle {
+            width: 300px; height: 120px;
+            x: (parent.width - self.width) / 2;
+            y: (parent.height - self.height) / 2;
+            background: #333333;
+            border-radius: 8px;
+            border-width: 1px;
+            border-color: #555555;
+
+            VerticalLayout {
+                padding: 16px;
+                spacing: 12px;
+                alignment: center;
+
+                Text {
+                    text: "Rename Profile";
+                    color: white;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                }
+
+                rename_input := LineEdit {
+                    text: root.edit_text;
+                    width: 100%;
+                    edited => {
+                        root.edit_text = self.text;
+                    }
+                }
+
+                HorizontalLayout {
+                    spacing: 16px;
+                    alignment: center;
+
+                    Button {
+                        text: "Cancel";
+                        clicked => {
+                            root.cancelled();
+                        }
+                    }
+
+                    Button {
+                        text: "Rename";
+                        primary: true;
+                        clicked => {
+                            root.accepted(root.edit_text);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
