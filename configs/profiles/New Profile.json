@@ -1,0 +1,24 @@
+{
+  "top_boundary": 0,
+  "global_border_width": 1,
+  "global_border_color": "#555555",
+  "key_margin_width": 10,
+  "global_key_color": "#333333",
+  "flow_direction": 0,
+  "flow_speed": 4,
+  "front_line_emit": false,
+  "window_x": 910,
+  "window_y": 490,
+  "keys": [
+    {
+      "rdev_key_name": "KeyA",
+      "display_name": "A",
+      "x": 10,
+      "y": 10,
+      "width": 80,
+      "height": 80,
+      "color_pressed": "#4A90E2FF",
+      "bar_width_percent": 100
+    }
+  ]
+}
