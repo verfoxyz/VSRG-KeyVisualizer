@@ -1,18 +1,21 @@
-import { Button, LineEdit, SpinBox, CheckBox, ScrollView } from "std-widgets.slint";
+import { Button, ScrollView } from "std-widgets.slint";
 import { KeyData } from "key_data.slint";
 import { ConfirmDeleteDialog, RenameDialog } from "dialogs.slint";
+import { ProfilePanel } from "profile_panel.slint";
+import { SettingsPreview } from "settings_preview.slint";
+import { KeyPropsPanel } from "key_props_panel.slint";
+import { GlobalSettingsPanel } from "global_settings_panel.slint";
 
 export component SettingsWindow inherits Window {
-    max-width: 1000px;
     min-height: 700px;
     title: "VSRG-KeyVisualizer config";
     background: #252525;
     always-on-top: true;
 
+    // ===== 所有属性（保持与 Rust 端接口一致） =====
     in property <[KeyData]> root_preview_keys;
     in-out property <int> selected_index: -1;
 
-    // 双向状态属性（SpinBox 双向绑定，Rust 端 set 更新）
     in-out property <int> current_x;
     in-out property <int> current_y;
     in-out property <int> current_w;
@@ -33,7 +36,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> flow_speed: 4;
     in-out property <bool> front_line_emit: false;
 
-    // ====== Profile 相关属性和回调 ======
+    // Profile
     in property <[string]> profile_list;
     in-out property <int> profile_selected: -1;
     in property <string> current_profile_name;
@@ -44,7 +47,7 @@ export component SettingsWindow inherits Window {
     in-out property <int> renaming_index: -1;
     in-out property <string> renaming_text;
 
-    // 暴露纯单向的事件意图通知接口
+    // 事件回调
     callback handle_canvas_pointer_down(int, int, bool);
     callback update_key_position(int, int, int, int, int);
     callback update_key_position_x(int, int, int, int);
@@ -64,478 +67,212 @@ export component SettingsWindow inherits Window {
     callback front_line_emit_toggled(bool);
     callback delete_key(int);
     callback update_key_bar_width_percent(int, int);
-    /// 多选删除：弹出确认对话框，确认后删除所有选中的按键
     callback delete_selected_keys();
     in-out property <bool> confirm_delete_visible: false;
+
+    // 浮动参数面板位置（Rust 端维护，通过 callback 更新）
+    in-out property <length> panel_x: 0px;
+    in-out property <length> panel_y: 0px;
+    callback panel_drag_start(int, int);  // 按下时传 (mouse_rel_x, mouse_rel_y)
+    callback panel_drag_move(int, int);   // 拖拽中传 (mouse_rel_x, mouse_rel_y)
+    callback panel_drag_end();            // 释放
 
     HorizontalLayout {
         padding: 15px;
         spacing: 15px;
 
         // ====== 左侧：Profile 列表 ======
-        profile_panel := Rectangle {
-            width: 200px;
-            horizontal-stretch: 0;
-            background: #1e1e1e;
-            border-radius: 6px;
+        ProfilePanel {
+            profile_list <=> root.profile_list;
+            profile_selected <=> root.profile_selected;
+            current_profile_name <=> root.current_profile_name;
+            switch_to_profile(index) => { root.switch_to_profile(index); }
+            add_new_profile => { root.add_new_profile(); }
+            rename_profile(index, name) => { root.rename_profile(index, name); }
+            delete_profile(index) => { root.delete_profile(index); }
+            renaming_index <=> root.renaming_index;
+            renaming_text <=> root.renaming_text;
+        }
+
+        // ====== 右侧容器：画布预览 + 浮动参数面板 ======
+        Rectangle {
+            horizontal-stretch: 1;
+            background: transparent;
+            clip: false;
 
             VerticalLayout {
-                padding: 10px;
-                spacing: 8px;
-
-                Text {
-                    text: "Profiles";
-                    color: #aaa;
-                    font-size: 14px;
-                    font-weight: 700;
-                }
-
-                Rectangle {
-                    //width: 100%;
-                    height: 1px;
-                    background: #444;
-                }
-
-                // Profile 列表区域
-                ScrollView {
-                    //width: 100%;
-                    VerticalLayout {
-                        spacing: 4px;
-                        for p[i] in root.profile_list: Rectangle {
-                            height: 32px;
-                            background: (i == root.profile_selected) ? #4A90E260 : transparent;
-                            border-radius: 4px;
-                            border-width: 1px;
-                            border-color: (i == root.profile_selected) ? #4A90E2 : transparent;
-
-                            // 点击切换配置
-                            TouchArea {
-                                width: 100%;
-                                height: 100%;
-                                pointer-event(event) => {
-                                    if (event.kind == PointerEventKind.down) {
-                                        root.profile_selected = i;
-                                        root.switch_to_profile(i);
-                                    }
-                                }
-                            }
-
-                            // 名称文本
-                            Text {
-                                text: p;
-                                color: (i == root.profile_selected) ? white : #ccc;
-                                vertical-alignment: center;
-                                horizontal-alignment: center;
-                                font-size: 13px;
-                            }
-
-                            // 重命名按钮（右上角）
-                            Rectangle {
-                                x: parent.width - 30px;
-                                y: 0px;
-                                width: 30px;
-                                height: 100%;
-                                background: transparent;
-                                border-radius: 4px;
-
-                                Text {
-                                    text: "~";
-                                    color: (i == root.profile_selected) ? #aaa : transparent;
-                                    font-size: 14px;
-                                    width: 100%;
-                                    height: 100%;
-                                    vertical-alignment: center;
-                                    horizontal-alignment: center;
-                                }
-
-                                TouchArea {
-                                    width: 100%;
-                                    height: 100%;
-                                    pointer-event(event) => {
-                                        if (event.kind == PointerEventKind.down) {
-                                            root.renaming_index = i;
-                                            root.renaming_text = p;
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 当前激活标识
-                Text {
-                    text: "Active: " + root.current_profile_name;
-                    color: #888;
-                    font-size: 11px;
-                }
-
-                // 新增/删除配置按钮
-                HorizontalLayout {
-                    spacing: 4px;
-                    Button {
-                        text: "+";
-                        width: 30px;
-                        clicked => {
-                            root.add_new_profile();
-                        }
-                    }
-                    Button {
-                        text: "−";
-                        width: 30px;
-                        enabled: root.profile_selected >= 0;
-                        clicked => {
-                            root.delete_profile(root.profile_selected);
-                        }
-                    }
-                    Text {
-                        text: "new / del";
-                        color: #888;
-                        font-size: 11px;
-                        vertical-alignment: center;
-                    }
-                }
-            }
-        }
-
-        // ====== 右侧：画布预览 + 参数配置 ======
-        VerticalLayout {
-            spacing: 15px;
-            horizontal-stretch: 1; // 增加这一行，强制右侧占满剩余空间
-            Text {
-                text: "Location Preview (Drag to move, Click to select)";
-                color: #aaa;
-            }
-
-            preview_box := Rectangle {
-                min-height: 180px;
-                //width: 100%;
-                background: #1a1a1a;
-                clip: true;
-
-                // 1. 将 TouchArea 铺满整个画布，作为全局鼠标事件拦截器
-                canvas_ta := TouchArea {
-                    pointer-event(event) => {
-                        if (event.kind == PointerEventKind.down) {
-                            debug("[Canvas TA] Pointer Down at:", Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
-                            // 将 raw 画布坐标发给 Rust 端做 hit-test 选中
-                            root.handle_canvas_pointer_down(
-                                Math.round(self.pressed-x / 1px), 
-                                Math.round(self.pressed-y / 1px),
-                                event.modifiers.control);
-                            // 点击画布时让 key_handler 获得焦点，确保 Delete 键可用
-                            key_handler.focus();
-                        }
-                        if (event.kind == PointerEventKind.up) {
-                            debug("[Canvas TA] Pointer Up");
-                        }
-                    }
-
-                    moved => {
-                        if (root.selected_index >= 0 && self.pressed) {
-                            // 发送 raw 画布坐标，Rust 端减去拖拽偏移计算目标位置
-                            root.update_key_position(
-                                root.selected_index,
-                                Math.round(self.mouse-x / 1px),
-                                Math.round(self.mouse-y / 1px),
-                                Math.round(preview_box.width / 1px),
-                                Math.round(preview_box.height / 1px));
-                        }
-                    }
-                }
-
-                // 2. 具体的按键渲染（仅负责呈现，内部不再放置带有移动逻辑的 TouchArea）
-                //    高亮逻辑：选中（selected_index == i 或 key.selected == true）时显示选中样式
-                for key[i] in root.root_preview_keys: Rectangle {
-                    x: key.x - root.key_margin_width * 1px;
-                    y: key.y - root.key_margin_width * 1px;
-                    width: key.w + root.key_margin_width * 2px;
-                    height: key.h + root.key_margin_width * 2px;
-                    clip: true;
-
-                    border-width: (root.selected_index == i || key.selected) ? 3px : 1px;
-                    border-color: (root.selected_index == i || key.selected) ? #00FFCC : #555555;
-                    background: (root.selected_index == i || key.selected) ? #4A90E240 : transparent;
-
-                    Rectangle {
-                        x: root.key_margin_width * 1px;
-                        y: root.key_margin_width * 1px;
-                        width: key.w;
-                        height: key.h;
-                        border-width: 1px;
-                        border-color: #222222;
-                        background: (root.selected_index == i || key.selected) ? #4A90E2 : root.global_key_color;
-
-                        Text {
-                            text: key.display_name;
-                            color: white;
-                            x: (parent.width - self.width) / 2;
-                            y: (parent.height - self.height) / 2;
-                        }
-                    }
-                }
-
-                Button {
-                    text: "+ Add Key";
-                    x: parent.width - 110px;
-                    y: parent.height - 40px;
-                    clicked => {
-                        root.add_new_key();
-                    }
-                }
-            }
-            // ====== 参数配置（可滚动） ======
-            ScrollView {
+                spacing: 15px;
                 horizontal-stretch: 1;
-                VerticalLayout {
-                    spacing: 12px;
-                    padding: 4px;
 
-                    Text {
-                        text: "Parameter Config";
-                        color: #aaa;
-                    }
+                Text {
+                    text: "Location Preview (Drag to move, Click to select)";
+                    color: #aaa;
+                }
 
-                    FocusScope {
-                        VerticalLayout {
-                            padding: 12px;
-                            spacing: 8px;
-                            alignment: start;
-
-                            Text {
-                                text: "Key Properties";
-                                font-size: 14px;
-                                color: #EEEEEE;
-                                font-weight: 700;
-                            }
-
-                            HorizontalLayout {
-                                spacing: 8px;
-
-                                VerticalLayout {
-                                    spacing: 4px;
-
-                                    HorizontalLayout {
-                                        spacing: 4px;
-                                        alignment: center;
-
-                                        Text { text: "X:"; color: #AAAAAA; vertical-alignment: center; }
-
-                                        current_x_input := SpinBox {
-                                            value <=> root.current_x;
-                                            minimum: -9999;
-                                            maximum: 9999;
-                                            enabled: root.selected_index != -1;
-                                            edited => {
-                                                root.update-key_position_x(
-                                                    root.selected_index,
-                                                    self.value,
-                                                    Math.round(preview_box.width / 1px),
-                                                    Math.round(preview_box.height / 1px));
-                                            }
-                                        }
-                                    }
-
-                                    HorizontalLayout {
-                                        spacing: 4px;
-                                        alignment: center;
-
-                                        Text { text: "Y:"; color: #AAAAAA; vertical-alignment: center; }
-
-                                        current_y_input := SpinBox {
-                                            value <=> root.current_y;
-                                            minimum: -9999;
-                                            maximum: 9999;
-                                            enabled: root.selected_index != -1;
-                                            edited => {
-                                                root.update-key_position_y(
-                                                    root.selected_index,
-                                                    self.value,
-                                                    Math.round(preview_box.width / 1px),
-                                                    Math.round(preview_box.height / 1px));
-                                            }
-                                        }
-                                    }
-                                }
-
-                                VerticalLayout {
-                                    spacing: 4px;
-
-                                    HorizontalLayout {
-                                        spacing: 4px;
-                                        alignment: center;
-
-                                        Text { text: "W:"; color: #AAAAAA; vertical-alignment: center; }
-
-                                        current_w_input := SpinBox {
-                                            value <=> root.current_w;
-                                            enabled: root.selected_index != -1;
-                                            minimum: 1;
-                                            edited => {
-                                                root.current_w = self.value;
-                                                root.update_key_size(root.selected_index, self.value, root.current_h);
-                                            }
-                                        }
-                                    }
-
-                                    HorizontalLayout {
-                                        spacing: 4px;
-                                        alignment: center;
-
-                                        Text { text: "H:"; color: #AAAAAA; vertical-alignment: center; }
-
-                                        current_h_input := SpinBox {
-                                            value <=> root.current_h;
-                                            enabled: root.selected_index != -1;
-                                            minimum: 1;
-                                            edited => {
-                                                root.current_h = self.value;
-                                                root.update_key_size(root.selected_index, root.current_w, self.value);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            GridLayout {
-                                spacing: 8px;
-                                Row {
-                                    Text { text: "Pressed Color:"; vertical-alignment: center; color: white; }
-                                    current_col_input := LineEdit {
-                                        text <=> root.current_color;
-                                        enabled: root.selected_index != -1;
-                                        edited => {
-                                            root.current_color = self.text;
-                                            root.update_key_color(root.selected_index, self.text);
-                                        }
-                                    }
-                                }
-                                Row {
-                                    Text { text: "Opacity %:"; vertical-alignment: center; color: white; }
-                                    SpinBox {
-                                        value <=> root.current_opacity_percent;
-                                        enabled: root.selected_index != -1;
-                                        minimum: 1; maximum: 100; step-size: 5;
-                                        edited => {
-                                            root.current_opacity_percent = self.value;
-                                            root.update_key_opacity(root.selected_index, self.value);
-                                        }
-                                    }
-                                    Text { text: "Bar W%:"; color: #AAAAAA; vertical-alignment: center; }
-                                    current_bar_wp_input := SpinBox {
-                                        value <=> root.current_bar_width_percent;
-                                        enabled: root.selected_index != -1;
-                                        minimum: 10; maximum: 100; step-size: 5;
-                                        edited => {
-                                            root.current_bar_width_percent = self.value;
-                                            root.update_key_bar_width_percent(root.selected_index, self.value);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    Rectangle { height: 1px; background: #AAAAAA; }
-
-                    Text {
-                        text: "Global Settings";
-                        font-size: 14px;
-                        color: #EEEEEE;
-                        font-weight: 700;
-                    }
-
-                    GridLayout {
-                        spacing: 8px;
-
-                        Row {
-                            Text { text: "Key Color:"; vertical-alignment: center; color: white; }
-                            key_col_input := LineEdit {
-                                text: root.global_key_color_hex;
-                                edited => { root.global_key_color_hex = self.text; root.key_color_edited(self.text); }
-                            }
-                            Text { text: "Opacity %:"; vertical-alignment: center; color: white; }
-                            SpinBox {
-                                value: root.global_key_opacity_percent; minimum: 1; maximum: 100; step-size: 5;
-                                edited => { root.global_key_opacity_percent = self.value; root.key_opacity_edited(self.value); }
-                            }
-                        }
-                        Row {
-                            Text { text: "Border Color:"; vertical-alignment: center; color: white; }
-                            border_col_input := LineEdit {
-                                text: root.global_border_color_hex;
-                                edited => { root.global_border_color_hex = self.text; root.border_color_edited(self.text); }
-                            }
-                        }
-                        Row {
-                            Text { text: "Front-Line Emit:"; vertical-alignment: center; color: white; }
-                            CheckBox {
-                                checked: root.front_line_emit;
-                                toggled => { root.front_line_emit = self.checked; root.front_line_emit_toggled(self.checked); }
-                            }
-                            Text { text: "All notes emit from front-line keys"; color: #888888; vertical-alignment: center; }
-                        }
-                        Row {
-                            Text { text: "Flow Direction:"; vertical-alignment: center; color: white; }
-                            SpinBox {
-                                value: root.flow_direction; minimum: 0; maximum: 3; step-size: 1;
-                                edited => { root.flow_direction = self.value; root.flow_direction_edited(self.value); }
-                            }
-                            Text { text: "Flow Speed (px/tick):"; vertical-alignment: center; color: white; }
-                            SpinBox {
-                                value: root.flow_speed; minimum: 1; maximum: 50; step-size: 1;
-                                edited => { root.flow_speed = self.value; root.flow_speed_edited(self.value); }
-                            }
-                        }
-                        Row {
-                            Text { text: "Top Disappear Boundary (px):"; vertical-alignment: center; color: white; }
-                            SpinBox {
-                                value: root.global_top_boundary; minimum: 0; maximum: 800; step-size: 10;
-                                edited => { root.global_top_boundary = self.value; root.top_boundary_edited(self.value); }
-                            }
-                            Text { text: "Key Margin Width (px):"; vertical-alignment: center; color: white; }
-                            SpinBox {
-                                value: root.key_margin_width; minimum: 0; maximum: 100; step-size: 1;
-                                edited => { root.key_margin_width = self.value; root.key_margin_edited(self.value); }
-                            }
-                        }
-                    }
-
-                    Rectangle { height: 1px; background: #AAAAAA; }
-
-                    HorizontalLayout {
-                        spacing: 15px;
-                        Button {
-                            text: "Delete Selected Key";
-                            enabled: root.selected_index != -1;
-                            clicked => {
-                                root.confirm_delete_visible = true;
-                            }
-                        }
-
-                        Button {
-                            text: "Save Config & Close";
-                            primary: true;
-                            clicked => {
-                                root.save_config();
-                            }
-                        }
-                    }
-
-                    // Delete 键盘快捷键
-                    key_handler := FocusScope {
-                        enabled: root.selected_index != -1;
-                        key-pressed(ev) => {
-                            if (ev.text == "" || ev.text == "\u{7f}") {
-                                root.confirm_delete_visible = true;
-                                accept
-                            } else { reject }
-                        }
-                    }
+                preview_box := SettingsPreview {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    preview_keys <=> root.root_preview_keys;
+                    key_margin_width <=> root.key_margin_width;
+                    global_key_color <=> root.global_key_color;
+                    selected_index <=> root.selected_index;
+                    handle_canvas_pointer_down(x, y, ctrl) => { root.handle_canvas_pointer_down(x, y, ctrl); }
+                    update_key_position(idx, mx, my, cw, ch) => { root.update_key_position(idx, mx, my, cw, ch); }
+                    add_new_key => { root.add_new_key(); }
+                    request_focus => { key_handler.focus(); }
                 }
             }
-        }
-    }
+
+            // 浮动参数面板（可拖拽，z 轴在前）
+            param_panel := Rectangle {
+                // x/y 使用面板当前绝对位置 panel_x/panel_y
+                x: root.panel_x;
+                y: Math.max(root.panel_y, 16px);
+                width: 300px;
+                init => {
+                    root.panel_x = parent.width - 320px;
+                    root.panel_y = 16px;
+                    debug("[PANEL-DRAG] INIT: panel_xy=(", Math.round(root.panel_x / 1px), ",", Math.round(root.panel_y / 1px), ") parent.width=", Math.round(parent.width / 1px));
+                }
+                z: 1;
+                background: #2a2a2a;
+                border-radius: 8px;
+                border-width: 1px;
+                border-color: #555555;
+
+                VerticalLayout {
+                    spacing: 0px;
+                    width: 100%;
+                    height: 100%;
+
+                    // 拖拽标题栏
+                    Rectangle {
+                        height: 28px;
+                        background: #333333;
+                        border-radius: 8px;
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            pointer-event(event) => {
+                                if (event.kind == PointerEventKind.down) {
+                                    debug("[PANEL-DRAG] DOWN: pressed=(",
+                                        Math.round(self.pressed-x / 1px), ",", Math.round(self.pressed-y / 1px),
+                                        ") panel=(", Math.round(root.panel_x / 1px), ",", Math.round(root.panel_y / 1px), ")");
+                                    root.panel_drag_start(Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
+                                }
+                                if (event.kind == PointerEventKind.up) {
+                                    debug("[PANEL-DRAG] UP: panel=(",
+                                        Math.round(root.panel_x / 1px), ",", Math.round(root.panel_y / 1px), ")");
+                                    root.panel_drag_end();
+                                }
+                            }
+                            moved => {
+                                if (self.pressed) {
+                                    root.panel_drag_move(Math.round(self.mouse-x / 1px), Math.round(self.mouse-y / 1px));
+                                }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            spacing: 6px;
+                            padding-left: 8px;
+                            Text {
+                                text: "⋮⋮";
+                                color: #888;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                            Text {
+                                text: "Parameter Config";
+                                color: #aaa;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    ScrollView {
+                        vertical-stretch: 1;
+                        VerticalLayout {
+                            spacing: 12px;
+                            padding: 8px;
+
+                        // Key Properties 面板
+                        FocusScope {
+                            KeyPropsPanel {
+                                current_x <=> root.current_x;
+                                current_y <=> root.current_y;
+                                current_w <=> root.current_w;
+                                current_h <=> root.current_h;
+                                current_color <=> root.current_color;
+                                current_opacity_percent <=> root.current_opacity_percent;
+                                current_bar_width_percent <=> root.current_bar_width_percent;
+                                selected_index <=> root.selected_index;
+                                preview_width: Math.round(preview_box.width / 1px);
+                                preview_height: Math.round(preview_box.height / 1px);
+                                update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
+                                update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
+                                update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
+                                update_key_color(idx, c) => { root.update_key_color(idx, c); }
+                                update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
+                                update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
+                            }
+                        }
+
+                        Rectangle { height: 1px; background: #AAAAAA; }
+
+                        // Global Settings 面板
+                        GlobalSettingsPanel {
+                            global_key_color_hex <=> root.global_key_color_hex;
+                            global_key_opacity_percent <=> root.global_key_opacity_percent;
+                            global_border_color_hex <=> root.global_border_color_hex;
+                            front_line_emit <=> root.front_line_emit;
+                            flow_direction <=> root.flow_direction;
+                            flow_speed <=> root.flow_speed;
+                            global_top_boundary <=> root.global_top_boundary;
+                            key_margin_width <=> root.key_margin_width;
+                            key_color_edited(val) => { root.key_color_edited(val); }
+                            key_opacity_edited(val) => { root.key_opacity_edited(val); }
+                            border_color_edited(val) => { root.border_color_edited(val); }
+                            front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
+                            flow_direction_edited(val) => { root.flow_direction_edited(val); }
+                            flow_speed_edited(val) => { root.flow_speed_edited(val); }
+                            top_boundary_edited(val) => { root.top_boundary_edited(val); }
+                            key_margin_edited(val) => { root.key_margin_edited(val); }
+                        }
+
+                        Rectangle { height: 1px; background: #AAAAAA; }
+
+                        HorizontalLayout {
+                            spacing: 15px;
+                            Button {
+                                text: "Delete Selected Key";
+                                enabled: root.selected_index != -1;
+                                clicked => { root.confirm_delete_visible = true; }
+                            }
+                            Button {
+                                text: "Save Config & Close";
+                                primary: true;
+                                clicked => { root.save_config(); }
+                            }
+                        }
+
+                        key_handler := FocusScope {
+                            enabled: root.selected_index != -1;
+                            key-pressed(ev) => {
+                                if (ev.text == "" || ev.text == "\u{7f}") {
+                                    root.confirm_delete_visible = true;
+                                    accept
+                                } else { reject }
+                            }
+                        } // ~ key_handler
+                    } // ~ ScrollView.inner VerticalLayout
+                } // ~ ScrollView
+            } // ~ param_panel VerticalLayout
+        } // ~ param_panel Rectangle
+    } // ~ 右侧容器 Rectangle
+} // ~ HorizontalLayout (外层)
 
     // ====== 弹窗 ======
     ConfirmDeleteDialog {
@@ -544,9 +281,7 @@ export component SettingsWindow inherits Window {
             root.confirm_delete_visible = false;
             root.delete_selected_keys();
         }
-        cancelled => {
-            root.confirm_delete_visible = false;
-        }
+        cancelled => { root.confirm_delete_visible = false; }
     }
 
     RenameDialog {
@@ -557,11 +292,10 @@ export component SettingsWindow inherits Window {
             root.rename_profile(root.renaming_index, new_name);
             root.renaming_index = -1;
         }
-        cancelled => {
-            root.renaming_index = -1;
-        }
+        cancelled => { root.renaming_index = -1; }
     }
 
+    // 按键捕获模式遮罩层
     TouchArea {
         visible: root.capturing_mode;
         width: parent.width;
@@ -570,5 +304,4 @@ export component SettingsWindow inherits Window {
         y: 0;
         enabled: root.capturing_mode;
     }
-
-}
+} // ~ SettingsWindow

@@ -1,0 +1,83 @@
+import { Button } from "std-widgets.slint";
+import { KeyData } from "key_data.slint";
+
+export component SettingsPreview {
+    in property <[KeyData]> preview_keys;
+    in property <int> key_margin_width;
+    in property <color> global_key_color;
+    in property <int> selected_index: -1;
+    callback handle_canvas_pointer_down(int, int, bool);
+    callback update_key_position(int, int, int, int, int);
+    callback add_new_key();
+    callback request_focus();
+
+    preview_box := Rectangle {
+        min-height: 180px;
+        background: #1a1a1a;
+        clip: true;
+
+        // TouchArea 作为全局鼠标事件拦截器
+        canvas_ta := TouchArea {
+            pointer-event(event) => {
+                if (event.kind == PointerEventKind.down) {
+                    debug("[CANVAS] DOWN at (", Math.round(self.pressed-x / 1px), ",", Math.round(self.pressed-y / 1px), ")");
+                    root.handle_canvas_pointer_down(
+                        Math.round(self.pressed-x / 1px),
+                        Math.round(self.pressed-y / 1px),
+                        event.modifiers.control);
+                    root.request_focus();
+                }
+            }
+
+            moved => {
+                if (root.selected_index >= 0 && self.pressed) {
+                    debug("[CANVAS] MOVE: mouse=(", Math.round(self.mouse-x / 1px), ",", Math.round(self.mouse-y / 1px), ") pressed=", self.pressed);
+                    root.update_key_position(
+                        root.selected_index,
+                        Math.round(self.mouse-x / 1px),
+                        Math.round(self.mouse-y / 1px),
+                        Math.round(preview_box.width / 1px),
+                        Math.round(preview_box.height / 1px));
+                }
+            }
+        }
+
+        // 按键渲染
+        for key[i] in root.preview_keys: Rectangle {
+            x: key.x - root.key_margin_width * 1px;
+            y: key.y - root.key_margin_width * 1px;
+            width: key.w + root.key_margin_width * 2px;
+            height: key.h + root.key_margin_width * 2px;
+            clip: true;
+
+            border-width: (root.selected_index == i || key.selected) ? 3px : 1px;
+            border-color: (root.selected_index == i || key.selected) ? #00FFCC : #555555;
+            background: (root.selected_index == i || key.selected) ? #4A90E240 : transparent;
+
+            Rectangle {
+                x: root.key_margin_width * 1px;
+                y: root.key_margin_width * 1px;
+                width: key.w;
+                height: key.h;
+                border-width: 1px;
+                border-color: #222222;
+                background: (root.selected_index == i || key.selected) ? #4A90E2 : root.global_key_color;
+
+                Text {
+                    text: key.display_name;
+                    color: white;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+        }
+
+        // Add Key 按钮固定在右下角
+        Button {
+            text: "+ Add Key";
+            x: parent.width - 110px;
+            y: parent.height - 40px;
+            clicked => { root.add_new_key(); }
+        }
+    }
+}

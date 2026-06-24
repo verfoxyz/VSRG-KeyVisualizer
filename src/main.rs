@@ -468,8 +468,13 @@ fn create_settings_window(
 /// ========================================主函数========================================
 /// ======================================== MAIN ========================================
 fn main() {
+    let max_level = if cfg!(debug_assertions) {
+        tracing::Level::DEBUG
+    } else {
+        tracing::Level::INFO
+    };
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::INFO)
+        .with_max_level(max_level)
         .init();
     tracing::info!("[INFO] 程序启动，正在初始化...");
 
@@ -527,9 +532,8 @@ fn main() {
         };
         ui.set_key_area_height(key_area_h);
 
-        // 根据日志级别控制调试覆盖层显示
-        // tracing_subscriber 已设置 with_max_level，判断是否 >= DEBUG
-        let is_debug = tracing::level_filters::LevelFilter::current() >= tracing::level_filters::LevelFilter::DEBUG;
+        // 根据构建类型控制调试覆盖层显示
+        let is_debug = cfg!(debug_assertions);
         ui.set_show_debug_overlay(is_debug);
     }
 

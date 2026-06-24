@@ -371,6 +371,61 @@ pub fn setup_settings_window(
         }
     });
 
+    // 5. 浮动参数面板拖拽（Rust 端维护位置，避免 Slint mouse-x/y 抖动）
+    {
+        use std::cell::Cell;
+        struct PanelDragState {
+            dragging: Cell<bool>,
+            origin_x: Cell<i32>,
+            origin_y: Cell<i32>,
+            start_mx: Cell<i32>,
+            start_my: Cell<i32>,
+        }
+        let drag = &*Box::leak(Box::new(PanelDragState {
+            dragging: Cell::new(false),
+            origin_x: Cell::new(0),
+            origin_y: Cell::new(0),
+            start_mx: Cell::new(0),
+            start_my: Cell::new(0),
+        }));
+
+        let s_weak = settings.as_weak();
+        settings.on_panel_drag_start(move |mx, my| {
+            drag.dragging.set(true);
+            if let Some(s) = s_weak.upgrade() {
+                let px = s.get_panel_x() as i32;
+                let py = s.get_panel_y() as i32;
+                drag.origin_x.set(px);
+                drag.origin_y.set(py);
+                drag.start_mx.set(mx);
+                drag.start_my.set(my);
+                tracing::debug!("[PANEL-DRAG] START: origin=({}, {}) start_mouse=({}, {})", px, py, mx, my);
+            }
+        });
+
+        let s_weak = settings.as_weak();
+        settings.on_panel_drag_move(move |mx, my| {
+            if !drag.dragging.get() { return; }
+            if let Some(s) = s_weak.upgrade() {
+                // 全量计算：新位置 = 按下的原点 + (当前鼠标 - 按下时鼠标)
+                // 这和固定基准式等价，但通过 callback 走 Rust 端，
+                // 利用 Rust 的稳定内存访问和 Slint 的整数精度传递避免抖动
+                let new_x = drag.origin_x.get() + (mx - drag.start_mx.get());
+                let new_y = drag.origin_y.get() + (my - drag.start_my.get());
+                s.set_panel_x(new_x as f32);
+                s.set_panel_y(new_y as f32);
+            }
+        });
+
+        let s_weak = settings.as_weak();
+        settings.on_panel_drag_end(move || {
+            drag.dragging.set(false);
+            if let Some(s) = s_weak.upgrade() {
+                tracing::debug!("[PANEL-DRAG] END: panel=({}, {})", s.get_panel_x() as i32, s.get_panel_y() as i32);
+            }
+        });
+    }
+
     let state_save = state.clone();
     let s_weak = settings.as_weak();
     settings.on_save_config(move || {

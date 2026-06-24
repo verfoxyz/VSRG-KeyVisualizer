@@ -1,0 +1,132 @@
+import { Button, ScrollView } from "std-widgets.slint";
+
+export component ProfilePanel {
+    in property <[string]> profile_list;
+    in-out property <int> profile_selected: -1;
+    in property <string> current_profile_name;
+    callback switch_to_profile(int);
+    callback add_new_profile();
+    callback rename_profile(int, string);
+    callback delete_profile(int);
+    in-out property <int> renaming_index: -1;
+    in-out property <string> renaming_text;
+
+    Rectangle {
+        width: 200px;
+        horizontal-stretch: 0;
+        background: #1e1e1e;
+        border-radius: 6px;
+
+        VerticalLayout {
+            padding: 10px;
+            spacing: 8px;
+
+            Text {
+                text: "Profiles";
+                color: #aaa;
+                font-size: 14px;
+                font-weight: 700;
+            }
+
+            Rectangle {
+                height: 1px;
+                background: #444;
+            }
+
+            // Profile 列表区域
+            ScrollView {
+                VerticalLayout {
+                    spacing: 4px;
+                    for p[i] in root.profile_list: Rectangle {
+                        height: 32px;
+                        background: (i == root.profile_selected) ? #4A90E260 : transparent;
+                        border-radius: 4px;
+                        border-width: 1px;
+                        border-color: (i == root.profile_selected) ? #4A90E2 : transparent;
+
+                        // 点击切换配置
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            pointer-event(event) => {
+                                if (event.kind == PointerEventKind.down) {
+                                    root.profile_selected = i;
+                                    root.switch_to_profile(i);
+                                }
+                            }
+                        }
+
+                        // 名称文本
+                        Text {
+                            text: p;
+                            color: (i == root.profile_selected) ? white : #ccc;
+                            vertical-alignment: center;
+                            horizontal-alignment: center;
+                            font-size: 13px;
+                        }
+
+                        // 重命名按钮（右上角）
+                        Rectangle {
+                            x: parent.width - 30px;
+                            y: 0px;
+                            width: 30px;
+                            height: 100%;
+                            background: transparent;
+                            border-radius: 4px;
+
+                            Text {
+                                text: "~";
+                                color: (i == root.profile_selected) ? #aaa : transparent;
+                                font-size: 14px;
+                                width: 100%;
+                                height: 100%;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                            }
+
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                pointer-event(event) => {
+                                    if (event.kind == PointerEventKind.down) {
+                                        root.renaming_index = i;
+                                        root.renaming_text = p;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 当前激活标识
+            Text {
+                text: "Active: " + root.current_profile_name;
+                color: #888;
+                font-size: 11px;
+            }
+
+            // 新增/删除配置按钮
+            HorizontalLayout {
+                spacing: 4px;
+                Button {
+                    text: "+";
+                    width: 30px;
+                    clicked => { root.add_new_profile(); }
+                }
+                Button {
+                    text: "−";
+                    width: 30px;
+                    enabled: root.profile_selected >= 0;
+                    clicked => { root.delete_profile(root.profile_selected); }
+                }
+                Text {
+                    text: "new / del";
+                    color: #888;
+                    font-size: 11px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}

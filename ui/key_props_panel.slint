@@ -1,0 +1,152 @@
+import { SpinBox, LineEdit } from "std-widgets.slint";
+
+export component KeyPropsPanel {
+    in-out property <int> current_x;
+    in-out property <int> current_y;
+    in-out property <int> current_w;
+    in-out property <int> current_h;
+    in-out property <string> current_color;
+    in-out property <int> current_opacity_percent: 100;
+    in-out property <int> current_bar_width_percent: 100;
+    in property <int> selected_index: -1;
+    in property <int> preview_width;
+    in property <int> preview_height;
+    callback update_key_position_x(int, int, int, int);
+    callback update_key_position_y(int, int, int, int);
+    callback update_key_size(int, int, int);
+    callback update_key_color(int, string);
+    callback update_key_opacity(int, int);
+    callback update_key_bar_width_percent(int, int);
+
+    in-out property <bool> expanded: true;
+
+    // ====== Key Properties（可折叠，列式布局） ======
+    VerticalLayout {
+        spacing: 8px;
+        alignment: start;
+
+        // 可点击的折叠标题栏
+        Rectangle {
+            height: 24px;
+            background: transparent;
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.expanded = !root.expanded; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.expanded ? "▼" : "▶";
+                    color: #EEEEEE;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "Key Properties";
+                    font-size: 14px;
+                    color: #EEEEEE;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        if root.expanded : GridLayout {
+            spacing: 6px;
+
+            Row {
+                Text { text: "X:"; color: #AAAAAA; vertical-alignment: center; }
+                current_x_input := SpinBox {
+                    value <=> root.current_x;
+                    minimum: -9999; maximum: 9999;
+                    horizontal-stretch: 1;
+                    enabled: root.selected_index != -1;
+                    edited => {
+                        root.update_key_position_x(
+                            root.selected_index, self.value,
+                            root.preview_width, root.preview_height);
+                    }
+                }
+            }
+            Row {
+                Text { text: "Y:"; color: #AAAAAA; vertical-alignment: center; }
+                current_y_input := SpinBox {
+                    value <=> root.current_y;
+                    minimum: -9999; maximum: 9999;
+                    horizontal-stretch: 1;
+                    enabled: root.selected_index != -1;
+                    edited => {
+                        root.update_key_position_y(
+                            root.selected_index, self.value,
+                            root.preview_width, root.preview_height);
+                    }
+                }
+            }
+            Row {
+                Text { text: "W:"; color: #AAAAAA; vertical-alignment: center; }
+                current_w_input := SpinBox {
+                    value <=> root.current_w;
+                    enabled: root.selected_index != -1;
+                    minimum: 1;
+                    horizontal-stretch: 1;
+                    edited => {
+                        root.current_w = self.value;
+                        root.update_key_size(root.selected_index, self.value, root.current_h);
+                    }
+                }
+            }
+            Row {
+                Text { text: "H:"; color: #AAAAAA; vertical-alignment: center; }
+                current_h_input := SpinBox {
+                    value <=> root.current_h;
+                    enabled: root.selected_index != -1;
+                    minimum: 1;
+                    horizontal-stretch: 1;
+                    edited => {
+                        root.current_h = self.value;
+                        root.update_key_size(root.selected_index, root.current_w, self.value);
+                    }
+                }
+            }
+            Row {
+                Text { text: "Color:"; color: white; vertical-alignment: center; }
+                current_col_input := LineEdit {
+                    text <=> root.current_color;
+                    horizontal-stretch: 1;
+                    enabled: root.selected_index != -1;
+                    edited => {
+                        root.current_color = self.text;
+                        root.update_key_color(root.selected_index, self.text);
+                    }
+                }
+            }
+            Row {
+                Text { text: "Opacity:"; color: white; vertical-alignment: center; }
+                SpinBox {
+                    value <=> root.current_opacity_percent;
+                    enabled: root.selected_index != -1;
+                    minimum: 1; maximum: 100; step-size: 5;
+                    horizontal-stretch: 1;
+                    edited => {
+                        root.current_opacity_percent = self.value;
+                        root.update_key_opacity(root.selected_index, self.value);
+                    }
+                }
+            }
+            Row {
+                Text { text: "Bar W%:"; color: #AAAAAA; vertical-alignment: center; }
+                current_bar_wp_input := SpinBox {
+                    value <=> root.current_bar_width_percent;
+                    enabled: root.selected_index != -1;
+                    minimum: 10; maximum: 100; step-size: 5;
+                    horizontal-stretch: 1;
+                    edited => {
+                        root.current_bar_width_percent = self.value;
+                        root.update_key_bar_width_percent(root.selected_index, self.value);
+                    }
+                }
+            }
+        }
+    }
+}

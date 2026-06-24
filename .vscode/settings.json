@@ -1,0 +1,16 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cargo build 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cargo run --release 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^cargo build --release 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

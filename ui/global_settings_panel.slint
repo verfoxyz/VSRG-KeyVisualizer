@@ -1,0 +1,109 @@
+import { LineEdit, SpinBox, CheckBox } from "std-widgets.slint";
+
+export component GlobalSettingsPanel {
+    in-out property <string> global_key_color_hex;
+    in-out property <int> global_key_opacity_percent: 100;
+    in-out property <string> global_border_color_hex;
+    in-out property <bool> front_line_emit: false;
+    in-out property <int> flow_direction: 0;
+    in-out property <int> flow_speed: 4;
+    in-out property <int> global_top_boundary: 0;
+    in-out property <int> key_margin_width: 4;
+    callback key_color_edited(string);
+    callback key_opacity_edited(int);
+    callback border_color_edited(string);
+    callback front_line_emit_toggled(bool);
+    callback flow_direction_edited(int);
+    callback flow_speed_edited(int);
+    callback top_boundary_edited(int);
+    callback key_margin_edited(int);
+
+    in-out property <bool> expanded: false;
+
+    // ====== Global Settings（可折叠，默认折叠） ======
+    VerticalLayout {
+        spacing: 8px;
+
+        Rectangle {
+            height: 24px;
+            background: transparent;
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.expanded = !root.expanded; }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                Text {
+                    text: root.expanded ? "▼" : "▶";
+                    color: #EEEEEE;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "Global Settings";
+                    font-size: 14px;
+                    color: #EEEEEE;
+                    font-weight: 700;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        if root.expanded : GridLayout {
+            spacing: 8px;
+
+            Row {
+                Text { text: "Key Color:"; vertical-alignment: center; color: white; }
+                key_col_input := LineEdit {
+                    text: root.global_key_color_hex;
+                    edited => { root.global_key_color_hex = self.text; root.key_color_edited(self.text); }
+                }
+                Text { text: "Opacity %:"; vertical-alignment: center; color: white; }
+                SpinBox {
+                    value: root.global_key_opacity_percent; minimum: 1; maximum: 100; step-size: 5;
+                    edited => { root.global_key_opacity_percent = self.value; root.key_opacity_edited(self.value); }
+                }
+            }
+            Row {
+                Text { text: "Border Color:"; vertical-alignment: center; color: white; }
+                border_col_input := LineEdit {
+                    text: root.global_border_color_hex;
+                    edited => { root.global_border_color_hex = self.text; root.border_color_edited(self.text); }
+                }
+            }
+            Row {
+                Text { text: "Front-Line Emit:"; vertical-alignment: center; color: white; }
+                CheckBox {
+                    checked: root.front_line_emit;
+                    toggled => { root.front_line_emit = self.checked; root.front_line_emit_toggled(self.checked); }
+                }
+                Text { text: "All notes emit from front-line keys"; color: #888888; vertical-alignment: center; }
+            }
+            Row {
+                Text { text: "Flow Direction:"; vertical-alignment: center; color: white; }
+                SpinBox {
+                    value: root.flow_direction; minimum: 0; maximum: 3; step-size: 1;
+                    edited => { root.flow_direction = self.value; root.flow_direction_edited(self.value); }
+                }
+                Text { text: "Flow Speed (px/tick):"; vertical-alignment: center; color: white; }
+                SpinBox {
+                    value: root.flow_speed; minimum: 1; maximum: 50; step-size: 1;
+                    edited => { root.flow_speed = self.value; root.flow_speed_edited(self.value); }
+                }
+            }
+            Row {
+                Text { text: "Top Disappear Boundary (px):"; vertical-alignment: center; color: white; }
+                SpinBox {
+                    value: root.global_top_boundary; minimum: 0; maximum: 800; step-size: 10;
+                    edited => { root.global_top_boundary = self.value; root.top_boundary_edited(self.value); }
+                }
+                Text { text: "Key Margin Width (px):"; vertical-alignment: center; color: white; }
+                SpinBox {
+                    value: root.key_margin_width; minimum: 0; maximum: 100; step-size: 1;
+                    edited => { root.key_margin_width = self.value; root.key_margin_edited(self.value); }
+                }
+            }
+        }
+    }
+}
