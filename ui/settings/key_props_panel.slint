@@ -52,11 +52,13 @@ export component KeyPropsPanel {
             }
         }
 
-        if root.expanded : GridLayout {
+        if root.expanded : VerticalLayout {
             spacing: 6px;
 
-            Row {
-                Text { text: "X:"; color: #AAAAAA; vertical-alignment: center; }
+            // X
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "X:"; width: 50px; color: #AAAAAA; vertical-alignment: center; }
                 current_x_input := SpinBox {
                     value <=> root.current_x;
                     minimum: -9999; maximum: 9999;
@@ -69,8 +71,10 @@ export component KeyPropsPanel {
                     }
                 }
             }
-            Row {
-                Text { text: "Y:"; color: #AAAAAA; vertical-alignment: center; }
+            // Y
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Y:"; width: 50px; color: #AAAAAA; vertical-alignment: center; }
                 current_y_input := SpinBox {
                     value <=> root.current_y;
                     minimum: -9999; maximum: 9999;
@@ -83,8 +87,10 @@ export component KeyPropsPanel {
                     }
                 }
             }
-            Row {
-                Text { text: "W:"; color: #AAAAAA; vertical-alignment: center; }
+            // W
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "W:"; width: 50px; color: #AAAAAA; vertical-alignment: center; }
                 current_w_input := SpinBox {
                     value <=> root.current_w;
                     enabled: root.selected_index != -1;
@@ -96,8 +102,10 @@ export component KeyPropsPanel {
                     }
                 }
             }
-            Row {
-                Text { text: "H:"; color: #AAAAAA; vertical-alignment: center; }
+            // H
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "H:"; width: 50px; color: #AAAAAA; vertical-alignment: center; }
                 current_h_input := SpinBox {
                     value <=> root.current_h;
                     enabled: root.selected_index != -1;
@@ -109,8 +117,10 @@ export component KeyPropsPanel {
                     }
                 }
             }
-            Row {
-                Text { text: "Color:"; color: white; vertical-alignment: center; }
+            // Color
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Color:"; width: 50px; color: white; vertical-alignment: center; }
                 current_col_input := LineEdit {
                     text <=> root.current_color;
                     horizontal-stretch: 1;
@@ -121,8 +131,10 @@ export component KeyPropsPanel {
                     }
                 }
             }
-            Row {
-                Text { text: "Opacity:"; color: white; vertical-alignment: center; }
+            // Opacity
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Opacity:"; width: 50px; color: white; vertical-alignment: center; }
                 SpinBox {
                     value <=> root.current_opacity_percent;
                     enabled: root.selected_index != -1;
@@ -134,8 +146,10 @@ export component KeyPropsPanel {
                     }
                 }
             }
-            Row {
-                Text { text: "Bar W%:"; color: #AAAAAA; vertical-alignment: center; }
+            // Bar Width %
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Bar W%:"; width: 50px; color: #AAAAAA; vertical-alignment: center; }
                 current_bar_wp_input := SpinBox {
                     value <=> root.current_bar_width_percent;
                     enabled: root.selected_index != -1;

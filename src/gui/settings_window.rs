@@ -376,30 +376,32 @@ pub fn setup_settings_window(
         use std::cell::Cell;
         struct PanelDragState {
             dragging: Cell<bool>,
-            origin_x: Cell<i32>,
-            origin_y: Cell<i32>,
-            start_mx: Cell<i32>,
-            start_my: Cell<i32>,
+            /// 按下瞬间鼠标相对于面板的偏移（恒定值，在拖拽期间不变）
+            offset_x: Cell<i32>,
+            offset_y: Cell<i32>,
+            /// 面板尺寸缓存
+            panel_w: Cell<i32>,
+            panel_h: Cell<i32>,
         }
         let drag = &*Box::leak(Box::new(PanelDragState {
             dragging: Cell::new(false),
-            origin_x: Cell::new(0),
-            origin_y: Cell::new(0),
-            start_mx: Cell::new(0),
-            start_my: Cell::new(0),
+            offset_x: Cell::new(0),
+            offset_y: Cell::new(0),
+            panel_w: Cell::new(300),
+            panel_h: Cell::new(200),
         }));
 
         let s_weak = settings.as_weak();
         settings.on_panel_drag_start(move |mx, my| {
-            drag.dragging.set(true);
             if let Some(s) = s_weak.upgrade() {
-                let px = s.get_panel_x() as i32;
-                let py = s.get_panel_y() as i32;
-                drag.origin_x.set(px);
-                drag.origin_y.set(py);
-                drag.start_mx.set(mx);
-                drag.start_my.set(my);
-                tracing::debug!("[PANEL-DRAG] START: origin=({}, {}) start_mouse=({}, {})", px, py, mx, my);
+                // mx/my 是面板标题栏局部坐标（范围 [0,300)×[0,28)）
+                // offset = 鼠标在面板内的偏移 = mx（恒定值）
+                drag.offset_x.set(mx);
+                drag.offset_y.set(my);
+                drag.dragging.set(true);
+                s.set_panel_dragging(true);
+                tracing::debug!("[PANEL-DRAG] START: offset=({}, {}) panel=({}, {})",
+                    mx, my, s.get_panel_x() as i32, s.get_panel_y() as i32);
             }
         });
 
@@ -407,13 +409,35 @@ pub fn setup_settings_window(
         settings.on_panel_drag_move(move |mx, my| {
             if !drag.dragging.get() { return; }
             if let Some(s) = s_weak.upgrade() {
-                // 全量计算：新位置 = 按下的原点 + (当前鼠标 - 按下时鼠标)
-                // 这和固定基准式等价，但通过 callback 走 Rust 端，
-                // 利用 Rust 的稳定内存访问和 Slint 的整数精度传递避免抖动
-                let new_x = drag.origin_x.get() + (mx - drag.start_mx.get());
-                let new_y = drag.origin_y.get() + (my - drag.start_my.get());
-                s.set_panel_x(new_x as f32);
-                s.set_panel_y(new_y as f32);
+                // mx/my 是面板标题栏局部坐标
+                // target = panel_x + (mx - offset) = panel_x + delta
+                // 其中 offset 是按下时鼠标在面板内的恒定偏移
+                let px = s.get_panel_x() as i32;
+                let py = s.get_panel_y() as i32;
+                let target_x = px + (mx - drag.offset_x.get());
+                let target_y = py + (my - drag.offset_y.get());
+
+                // 边界 clamp
+                let win_w = s.window().size().width as i32;
+                let win_h = s.window().size().height as i32;
+                let pw = drag.panel_w.get();
+                let ph = drag.panel_h.get();
+
+                let final_x = target_x.clamp(0, (win_w - pw).max(0));
+                let final_y = target_y.clamp(6, (win_h - ph).max(16));
+
+                let old_x = s.get_panel_x() as i32;
+                let old_y = s.get_panel_y() as i32;
+                if final_x != old_x || final_y != old_y {
+                    s.set_panel_x(final_x as f32);
+                    s.set_panel_y(final_y as f32);
+                }
+
+                tracing::debug!(
+                    "[PANEL-DRAG] MOVE: mouse=({}, {}) target=({}, {}) final=({}, {}) offset=({}, {})",
+                    mx, my, target_x, target_y, final_x, final_y,
+                    drag.offset_x.get(), drag.offset_y.get(),
+                );
             }
         });
 
@@ -421,9 +445,51 @@ pub fn setup_settings_window(
         settings.on_panel_drag_end(move || {
             drag.dragging.set(false);
             if let Some(s) = s_weak.upgrade() {
+                s.set_panel_dragging(false);
                 tracing::debug!("[PANEL-DRAG] END: panel=({}, {})", s.get_panel_x() as i32, s.get_panel_y() as i32);
             }
         });
+    }
+
+    // 6. 面板初始位置：延迟一帧等布局完成后，以设置窗口宽度为准设置 panel_x
+    {
+        let s_weak = settings.as_weak();
+        let init_timer = Box::new(slint::Timer::default());
+        init_timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::ZERO,
+            move || {
+                if let Some(s) = s_weak.upgrade() {
+                    let window_w = s.window().size().width as f32;
+                    // 面板宽 300px，右侧预留 20px 边距
+                    let px = (window_w - 320.0).max(0.0);
+                    s.set_panel_x(px);
+                    tracing::debug!("[PANEL-DRAG] INIT (deferred): panel_x={:.0} (window_width={:.0})", px, window_w);
+                }
+            },
+        );
+        Box::leak(init_timer);
+    }
+
+    // 7. 每秒输出一次面板和鼠标位置（debug 调试用，仅 debug 构建）
+    #[cfg(debug_assertions)]
+    {
+        let s_weak = settings.as_weak();
+        let debug_timer = Box::new(slint::Timer::default());
+        debug_timer.start(
+            slint::TimerMode::Repeated,
+            std::time::Duration::from_secs(1),
+            move || {
+                if let Some(s) = s_weak.upgrade() {
+                    tracing::debug!(
+                        "[PANEL-DEBUG] panel=({:.0}, {:.0})",
+                        s.get_panel_x(),
+                        s.get_panel_y(),
+                    );
+                }
+            },
+        );
+        Box::leak(debug_timer); // 故意泄漏，Timer 在 settings 窗口整个生命周期内持续运行
     }
 
     let state_save = state.clone();

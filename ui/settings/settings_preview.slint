@@ -1,11 +1,13 @@
 import { Button } from "std-widgets.slint";
-import { KeyData } from "key_data.slint";
+import { KeyData } from "../key_data.slint";
 
 export component SettingsPreview {
     in property <[KeyData]> preview_keys;
     in property <int> key_margin_width;
     in property <color> global_key_color;
     in property <int> selected_index: -1;
+    // 控制画布 TouchArea 是否启用（面板拖拽时禁用，防事件污染）
+    in property <bool> canvas_enabled: true;
     callback handle_canvas_pointer_down(int, int, bool);
     callback update_key_position(int, int, int, int, int);
     callback add_new_key();
@@ -18,6 +20,7 @@ export component SettingsPreview {
 
         // TouchArea 作为全局鼠标事件拦截器
         canvas_ta := TouchArea {
+            enabled: root.canvas_enabled;
             pointer-event(event) => {
                 if (event.kind == PointerEventKind.down) {
                     debug("[CANVAS] DOWN at (", Math.round(self.pressed-x / 1px), ",", Math.round(self.pressed-y / 1px), ")");
@@ -31,7 +34,6 @@ export component SettingsPreview {
 
             moved => {
                 if (root.selected_index >= 0 && self.pressed) {
-                    debug("[CANVAS] MOVE: mouse=(", Math.round(self.mouse-x / 1px), ",", Math.round(self.mouse-y / 1px), ") pressed=", self.pressed);
                     root.update_key_position(
                         root.selected_index,
                         Math.round(self.mouse-x / 1px),

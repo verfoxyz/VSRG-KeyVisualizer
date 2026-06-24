@@ -1,6 +1,6 @@
 import { Button, ScrollView } from "std-widgets.slint";
-import { KeyData } from "key_data.slint";
-import { ConfirmDeleteDialog, RenameDialog } from "dialogs.slint";
+import { KeyData } from "../key_data.slint";
+import { ConfirmDeleteDialog, RenameDialog } from "../dialogs/dialogs.slint";
 import { ProfilePanel } from "profile_panel.slint";
 import { SettingsPreview } from "settings_preview.slint";
 import { KeyPropsPanel } from "key_props_panel.slint";
@@ -8,6 +8,7 @@ import { GlobalSettingsPanel } from "global_settings_panel.slint";
 
 export component SettingsWindow inherits Window {
     min-height: 700px;
+    min-width: 1000px;
     title: "VSRG-KeyVisualizer config";
     background: #252525;
     always-on-top: true;
@@ -73,6 +74,10 @@ export component SettingsWindow inherits Window {
     // 浮动参数面板位置（Rust 端维护，通过 callback 更新）
     in-out property <length> panel_x: 0px;
     in-out property <length> panel_y: 0px;
+    // 面板拖拽中标志——底层 SettingsPreview 据此禁用 TouchArea，防止事件污染
+    in-out property <bool> panel_dragging: false;
+    // 面板展开/折叠
+    in-out property <bool> panel_expanded: true;
     callback panel_drag_start(int, int);  // 按下时传 (mouse_rel_x, mouse_rel_y)
     callback panel_drag_move(int, int);   // 拖拽中传 (mouse_rel_x, mouse_rel_y)
     callback panel_drag_end();            // 释放
@@ -116,6 +121,7 @@ export component SettingsWindow inherits Window {
                     key_margin_width <=> root.key_margin_width;
                     global_key_color <=> root.global_key_color;
                     selected_index <=> root.selected_index;
+                    canvas_enabled: true;
                     handle_canvas_pointer_down(x, y, ctrl) => { root.handle_canvas_pointer_down(x, y, ctrl); }
                     update_key_position(idx, mx, my, cw, ch) => { root.update_key_position(idx, mx, my, cw, ch); }
                     add_new_key => { root.add_new_key(); }
@@ -127,12 +133,11 @@ export component SettingsWindow inherits Window {
             param_panel := Rectangle {
                 // x/y 使用面板当前绝对位置 panel_x/panel_y
                 x: root.panel_x;
-                y: Math.max(root.panel_y, 16px);
+                y: root.panel_y;
                 width: 300px;
                 init => {
-                    root.panel_x = parent.width - 320px;
+                    root.panel_x = 0px;
                     root.panel_y = 16px;
-                    debug("[PANEL-DRAG] INIT: panel_xy=(", Math.round(root.panel_x / 1px), ",", Math.round(root.panel_y / 1px), ") parent.width=", Math.round(parent.width / 1px));
                 }
                 z: 1;
                 background: #2a2a2a;
@@ -145,7 +150,7 @@ export component SettingsWindow inherits Window {
                     width: 100%;
                     height: 100%;
 
-                    // 拖拽标题栏
+                    // 拖拽标题栏（点击切换折叠）
                     Rectangle {
                         height: 28px;
                         background: #333333;
@@ -172,13 +177,16 @@ export component SettingsWindow inherits Window {
                                     root.panel_drag_move(Math.round(self.mouse-x / 1px), Math.round(self.mouse-y / 1px));
                                 }
                             }
+                            clicked => {
+                                root.panel_expanded = !root.panel_expanded;
+                            }
                         }
 
                         HorizontalLayout {
                             spacing: 6px;
                             padding-left: 8px;
                             Text {
-                                text: "⋮⋮";
+                                text: root.panel_expanded ? "▼" : "▶";
                                 color: #888;
                                 font-size: 12px;
                                 vertical-alignment: center;
@@ -192,11 +200,10 @@ export component SettingsWindow inherits Window {
                         }
                     }
 
-                    ScrollView {
-                        vertical-stretch: 1;
-                        VerticalLayout {
-                            spacing: 12px;
-                            padding: 8px;
+                    // ⭐ 动态高度：折叠时隐藏内容，展开时显示
+                    if root.panel_expanded : VerticalLayout {
+                        spacing: 0px;
+                        padding: 0px;
 
                         // Key Properties 面板
                         FocusScope {
@@ -245,7 +252,9 @@ export component SettingsWindow inherits Window {
                         Rectangle { height: 1px; background: #AAAAAA; }
 
                         HorizontalLayout {
+                            height: 40px;
                             spacing: 15px;
+                            padding: 4px;
                             Button {
                                 text: "Delete Selected Key";
                                 enabled: root.selected_index != -1;
@@ -258,18 +267,18 @@ export component SettingsWindow inherits Window {
                             }
                         }
 
-                        key_handler := FocusScope {
-                            enabled: root.selected_index != -1;
-                            key-pressed(ev) => {
-                                if (ev.text == "" || ev.text == "\u{7f}") {
-                                    root.confirm_delete_visible = true;
-                                    accept
-                                } else { reject }
-                            }
-                        } // ~ key_handler
-                    } // ~ ScrollView.inner VerticalLayout
-                } // ~ ScrollView
-            } // ~ param_panel VerticalLayout
+                    } // ~ if expanded
+
+                    key_handler := FocusScope {
+                        enabled: root.selected_index != -1;
+                        key-pressed(ev) => {
+                            if (ev.text == "" || ev.text == "\u{7f}") {
+                                root.confirm_delete_visible = true;
+                                accept
+                            } else { reject }
+                        }
+                    } // ~ key_handler
+                } // ~ param_panel VerticalLayout
         } // ~ param_panel Rectangle
     } // ~ 右侧容器 Rectangle
 } // ~ HorizontalLayout (外层)

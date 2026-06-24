@@ -50,57 +50,86 @@ export component GlobalSettingsPanel {
             }
         }
 
-        if root.expanded : GridLayout {
-            spacing: 8px;
+        if root.expanded : VerticalLayout {
+            spacing: 6px;
 
-            Row {
-                Text { text: "Key Color:"; vertical-alignment: center; color: white; }
+            // Key Color
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Key Color:"; width: 80px; vertical-alignment: center; color: white; }
                 key_col_input := LineEdit {
                     text: root.global_key_color_hex;
+                    horizontal-stretch: 1;
                     edited => { root.global_key_color_hex = self.text; root.key_color_edited(self.text); }
                 }
-                Text { text: "Opacity %:"; vertical-alignment: center; color: white; }
+            }
+            // Opacity
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Opacity %:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.global_key_opacity_percent; minimum: 1; maximum: 100; step-size: 5;
+                    horizontal-stretch: 1;
                     edited => { root.global_key_opacity_percent = self.value; root.key_opacity_edited(self.value); }
                 }
             }
-            Row {
-                Text { text: "Border Color:"; vertical-alignment: center; color: white; }
+            // Border Color
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Border Color:"; width: 80px; vertical-alignment: center; color: white; }
                 border_col_input := LineEdit {
                     text: root.global_border_color_hex;
+                    horizontal-stretch: 1;
                     edited => { root.global_border_color_hex = self.text; root.border_color_edited(self.text); }
                 }
             }
-            Row {
-                Text { text: "Front-Line Emit:"; vertical-alignment: center; color: white; }
+            // Front-Line Emit
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Front-Line Emit:"; width: 80px; vertical-alignment: center; color: white; }
                 CheckBox {
                     checked: root.front_line_emit;
                     toggled => { root.front_line_emit = self.checked; root.front_line_emit_toggled(self.checked); }
                 }
                 Text { text: "All notes emit from front-line keys"; color: #888888; vertical-alignment: center; }
             }
-            Row {
-                Text { text: "Flow Direction:"; vertical-alignment: center; color: white; }
+            // Flow Direction
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Flow Direction:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.flow_direction; minimum: 0; maximum: 3; step-size: 1;
+                    horizontal-stretch: 1;
                     edited => { root.flow_direction = self.value; root.flow_direction_edited(self.value); }
                 }
-                Text { text: "Flow Speed (px/tick):"; vertical-alignment: center; color: white; }
+            }
+            // Flow Speed
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Flow Speed:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.flow_speed; minimum: 1; maximum: 50; step-size: 1;
+                    horizontal-stretch: 1;
                     edited => { root.flow_speed = self.value; root.flow_speed_edited(self.value); }
                 }
             }
-            Row {
-                Text { text: "Top Disappear Boundary (px):"; vertical-alignment: center; color: white; }
+            // Top Boundary
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Top Boundary:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.global_top_boundary; minimum: 0; maximum: 800; step-size: 10;
+                    horizontal-stretch: 1;
                     edited => { root.global_top_boundary = self.value; root.top_boundary_edited(self.value); }
                 }
-                Text { text: "Key Margin Width (px):"; vertical-alignment: center; color: white; }
+            }
+            // Key Margin
+            HorizontalLayout {
+                spacing: 6px;
+                Text { text: "Key Margin:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.key_margin_width; minimum: 0; maximum: 100; step-size: 1;
+                    horizontal-stretch: 1;
                     edited => { root.key_margin_width = self.value; root.key_margin_edited(self.value); }
                 }
             }
