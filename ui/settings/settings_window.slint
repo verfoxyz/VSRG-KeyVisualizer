@@ -135,6 +135,9 @@ export component SettingsWindow inherits Window {
                 x: root.panel_x;
                 y: root.panel_y;
                 width: 300px;
+                // ⭐ 动态高度：展开时由内容撑开，折叠时仅标题栏 28px
+                height: root.panel_expanded ? content_layout.preferred-height : 28px;
+                clip: true;
                 init => {
                     root.panel_x = 0px;
                     root.panel_y = 16px;
@@ -145,10 +148,10 @@ export component SettingsWindow inherits Window {
                 border-width: 1px;
                 border-color: #555555;
 
-                VerticalLayout {
+                content_layout := VerticalLayout {
                     spacing: 0px;
                     width: 100%;
-                    height: 100%;
+                    // 移除 height: 100%，让高度由内容决定
 
                     // 拖拽标题栏（点击切换折叠）
                     Rectangle {
@@ -177,16 +180,13 @@ export component SettingsWindow inherits Window {
                                     root.panel_drag_move(Math.round(self.mouse-x / 1px), Math.round(self.mouse-y / 1px));
                                 }
                             }
-                            clicked => {
-                                root.panel_expanded = !root.panel_expanded;
-                            }
                         }
 
                         HorizontalLayout {
                             spacing: 6px;
                             padding-left: 8px;
                             Text {
-                                text: root.panel_expanded ? "▼" : "▶";
+                                text: "⋮⋮";
                                 color: #888;
                                 font-size: 12px;
                                 vertical-alignment: center;
