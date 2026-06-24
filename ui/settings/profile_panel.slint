@@ -71,12 +71,12 @@ export component ProfilePanel {
                             y: 0px;
                             width: 30px;
                             height: 100%;
-                            background: transparent;
+                            background: (i == root.profile_selected) ? #3e20ac : transparent;
                             border-radius: 4px;
 
                             Text {
-                                text: "~";
-                                color: (i == root.profile_selected) ? #aaa : transparent;
+                                text: "R";
+                                color: (i == root.profile_selected) ? #aaaaaa : transparent;
                                 font-size: 14px;
                                 width: 100%;
                                 height: 100%;
