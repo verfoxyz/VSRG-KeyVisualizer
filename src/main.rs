@@ -1,5 +1,5 @@
-// 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口
-#![cfg_attr(windows, windows_subsystem = "windows")]
+// 告诉 Windows 链接器这是一个 GUI 应用，不显示控制台窗口,仅在 Release 模式下生效
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod configs;
 mod state;

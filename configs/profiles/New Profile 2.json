@@ -7,8 +7,8 @@
   "flow_direction": 1,
   "flow_speed": 6,
   "front_line_emit": true,
-  "window_x": 125,
-  "window_y": 562,
+  "window_x": 417,
+  "window_y": 537,
   "keys": [
     {
       "rdev_key_name": "KeyA",
@@ -34,7 +34,7 @@
       "rdev_key_name": "SemiColon",
       "display_name": "SemiColon",
       "x": 160,
-      "y": 20,
+      "y": 17,
       "width": 80,
       "height": 80,
       "color_pressed": "#4A90E2FF",

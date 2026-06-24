@@ -31,9 +31,3 @@ windows = { version = "0.62.2", features = [
 
 [build-dependencies]
 slint-build = "1.16.1"
-
-
-# 双重保险：通过 Cargo 配置也设置 Windows 子系统
-# 主生效方式在 main.rs 中通过 #![windows_subsystem = "windows"] 实现
-[target.'cfg(windows)']
-rustflags = ["-C", "link-arg=/SUBSYSTEM:WINDOWS"]

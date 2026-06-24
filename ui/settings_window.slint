@@ -284,383 +284,254 @@ export component SettingsWindow inherits Window {
                     }
                 }
             }
-            // 参数配置
-            // ----------------------------------------------------------
-            Text {
-                text: "Parameter Config";
-                color: #aaa;
-            }
-
-            FocusScope {
-                //width: 100%;
+            // ====== 参数配置（可滚动） ======
+            ScrollView {
+                horizontal-stretch: 1;
                 VerticalLayout {
-                    padding: 12px;
-                    spacing: 8px;
-                    alignment: start;
-                    // 标题
+                    spacing: 12px;
+                    padding: 4px;
+
                     Text {
-                        text: "Key Properties";
+                        text: "Parameter Config";
+                        color: #aaa;
+                    }
+
+                    FocusScope {
+                        VerticalLayout {
+                            padding: 12px;
+                            spacing: 8px;
+                            alignment: start;
+
+                            Text {
+                                text: "Key Properties";
+                                font-size: 14px;
+                                color: #EEEEEE;
+                                font-weight: 700;
+                            }
+
+                            HorizontalLayout {
+                                spacing: 8px;
+
+                                VerticalLayout {
+                                    spacing: 4px;
+
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        alignment: center;
+
+                                        Text { text: "X:"; color: #AAAAAA; vertical-alignment: center; }
+
+                                        current_x_input := SpinBox {
+                                            value <=> root.current_x;
+                                            minimum: -9999;
+                                            maximum: 9999;
+                                            enabled: root.selected_index != -1;
+                                            edited => {
+                                                root.update-key_position_x(
+                                                    root.selected_index,
+                                                    self.value,
+                                                    Math.round(preview_box.width / 1px),
+                                                    Math.round(preview_box.height / 1px));
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        alignment: center;
+
+                                        Text { text: "Y:"; color: #AAAAAA; vertical-alignment: center; }
+
+                                        current_y_input := SpinBox {
+                                            value <=> root.current_y;
+                                            minimum: -9999;
+                                            maximum: 9999;
+                                            enabled: root.selected_index != -1;
+                                            edited => {
+                                                root.update-key_position_y(
+                                                    root.selected_index,
+                                                    self.value,
+                                                    Math.round(preview_box.width / 1px),
+                                                    Math.round(preview_box.height / 1px));
+                                            }
+                                        }
+                                    }
+                                }
+
+                                VerticalLayout {
+                                    spacing: 4px;
+
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        alignment: center;
+
+                                        Text { text: "W:"; color: #AAAAAA; vertical-alignment: center; }
+
+                                        current_w_input := SpinBox {
+                                            value <=> root.current_w;
+                                            enabled: root.selected_index != -1;
+                                            minimum: 1;
+                                            edited => {
+                                                root.current_w = self.value;
+                                                root.update_key_size(root.selected_index, self.value, root.current_h);
+                                            }
+                                        }
+                                    }
+
+                                    HorizontalLayout {
+                                        spacing: 4px;
+                                        alignment: center;
+
+                                        Text { text: "H:"; color: #AAAAAA; vertical-alignment: center; }
+
+                                        current_h_input := SpinBox {
+                                            value <=> root.current_h;
+                                            enabled: root.selected_index != -1;
+                                            minimum: 1;
+                                            edited => {
+                                                root.current_h = self.value;
+                                                root.update_key_size(root.selected_index, root.current_w, self.value);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            GridLayout {
+                                spacing: 8px;
+                                Row {
+                                    Text { text: "Pressed Color:"; vertical-alignment: center; color: white; }
+                                    current_col_input := LineEdit {
+                                        text <=> root.current_color;
+                                        enabled: root.selected_index != -1;
+                                        edited => {
+                                            root.current_color = self.text;
+                                            root.update_key_color(root.selected_index, self.text);
+                                        }
+                                    }
+                                }
+                                Row {
+                                    Text { text: "Opacity %:"; vertical-alignment: center; color: white; }
+                                    SpinBox {
+                                        value <=> root.current_opacity_percent;
+                                        enabled: root.selected_index != -1;
+                                        minimum: 1; maximum: 100; step-size: 5;
+                                        edited => {
+                                            root.current_opacity_percent = self.value;
+                                            root.update_key_opacity(root.selected_index, self.value);
+                                        }
+                                    }
+                                    Text { text: "Bar W%:"; color: #AAAAAA; vertical-alignment: center; }
+                                    current_bar_wp_input := SpinBox {
+                                        value <=> root.current_bar_width_percent;
+                                        enabled: root.selected_index != -1;
+                                        minimum: 10; maximum: 100; step-size: 5;
+                                        edited => {
+                                            root.current_bar_width_percent = self.value;
+                                            root.update_key_bar_width_percent(root.selected_index, self.value);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle { height: 1px; background: #AAAAAA; }
+
+                    Text {
+                        text: "Global Settings";
                         font-size: 14px;
                         color: #EEEEEE;
                         font-weight: 700;
                     }
 
-                    // 外层水平布局：分为左右两列
-                    HorizontalLayout {
-                        spacing: 8px;
-
-                        // --- 左侧列：X 和 Y ---
-                        VerticalLayout {
-                            spacing: 4px;
-
-                            HorizontalLayout {
-                                spacing: 4px;
-                                alignment: center;
-
-                                Text {
-                                    text: "X:";
-                                    color: #AAAAAA;
-                                    vertical-alignment: center;
-                                }
-
-                                current_x_input := SpinBox {
-                                    value <=> root.current_x;
-                                    minimum: -9999;
-                                    maximum: 9999;
-                                    enabled: root.selected_index != -1;
-                                    edited => {
-                                        root.update-key_position_x(
-                                            root.selected_index,
-                                            self.value,
-                                            Math.round(preview_box.width / 1px),
-                                            Math.round(preview_box.height / 1px));
-                                    }
-                                }
-                            }
-
-                            HorizontalLayout {
-                                spacing: 4px;
-                                alignment: center;
-
-                                Text {
-                                    text: "Y:";
-                                    color: #AAAAAA;
-                                    vertical-alignment: center;
-                                }
-
-                                current_y_input := SpinBox {
-                                    value <=> root.current_y;
-                                    minimum: -9999;
-                                    maximum: 9999;
-                                    enabled: root.selected_index != -1;
-                                    edited => {
-                                        root.update-key_position_y(
-                                            root.selected_index,
-                                            self.value,
-                                            Math.round(preview_box.width / 1px),
-                                            Math.round(preview_box.height / 1px));
-                                    }
-                                }
-                            }
-                        }
-
-                        // --- 右侧列：W 和 H ---
-                        VerticalLayout {
-                            spacing: 4px;
-
-                            HorizontalLayout {
-                                spacing: 4px;
-                                alignment: center;
-
-                                Text {
-                                    text: "W:";
-                                    color: #AAAAAA;
-                                    vertical-alignment: center;
-                                }
-
-                                current_w_input := SpinBox {
-                                    value <=> root.current_w;
-                                    enabled: root.selected_index != -1;
-                                    minimum: 1;
-                                    edited => {
-                                        root.current_w = self.value;
-                                        root.update_key_size(root.selected_index, self.value, root.current_h);
-                                    }
-                                }
-                            }
-
-                            HorizontalLayout {
-                                spacing: 4px;
-                                alignment: center;
-
-                                Text {
-                                    text: "H:";
-                                    color: #AAAAAA;
-                                    vertical-alignment: center;
-                                }
-
-                                current_h_input := SpinBox {
-                                    value <=> root.current_h;
-                                    enabled: root.selected_index != -1;
-                                    minimum: 1;
-                                    edited => {
-                                        root.current_h = self.value;
-                                        root.update_key_size(root.selected_index, root.current_w, self.value);
-                                    }
-                                }
-                            }
-                        }
-                        // --- Bar Width Percent 行 ---
-                    }
-
                     GridLayout {
                         spacing: 8px;
-                        Row {
-                            Text {
-                                text: "Pressed Color:";
-                                vertical-alignment: center;
-                                color: white;
-                            }
 
-                            current_col_input := LineEdit {
-                                text <=> root.current_color;
-                                enabled: root.selected_index != -1;
-                                edited => {
-                                    root.current_color = self.text;
-                                    root.update_key_color(root.selected_index, self.text);
-                                }
-                            }
-                        }
                         Row {
-                            Text {
-                                text: "Opacity %:";
-                                vertical-alignment: center;
-                                color: white;
+                            Text { text: "Key Color:"; vertical-alignment: center; color: white; }
+                            key_col_input := LineEdit {
+                                text: root.global_key_color_hex;
+                                edited => { root.global_key_color_hex = self.text; root.key_color_edited(self.text); }
                             }
-
+                            Text { text: "Opacity %:"; vertical-alignment: center; color: white; }
                             SpinBox {
-                                value <=> root.current_opacity_percent;
-                                enabled: root.selected_index != -1;
-                                minimum: 1;
-                                maximum: 100;
-                                step-size: 5;
-                                edited => {
-                                    root.current_opacity_percent = self.value;
-                                    root.update_key_opacity(root.selected_index, self.value);
-                                }
-                            }
-                            Text {
-                                text: "Bar W%:";
-                                color: #AAAAAA;
-                                vertical-alignment: center;
-                            }
-
-                            current_bar_wp_input := SpinBox {
-                                value <=> root.current_bar_width_percent;
-                                enabled: root.selected_index != -1;
-                                minimum: 10;
-                                maximum: 100;
-                                step-size: 5;
-                                edited => {
-                                    root.current_bar_width_percent = self.value;
-                                    root.update_key_bar_width_percent(root.selected_index, self.value);
-                                }
+                                value: root.global_key_opacity_percent; minimum: 1; maximum: 100; step-size: 5;
+                                edited => { root.global_key_opacity_percent = self.value; root.key_opacity_edited(self.value); }
                             }
                         }
-                    }
-                    
-                }
-            }
-
-            Rectangle {
-                //width: 100%;
-                height: 1px;
-                background: #AAAAAA;
-            }
-
-            GridLayout {
-                spacing: 8px;
-
-                Row {
-                    Text {
-                        text: "Key Color:";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    key_col_input := LineEdit {
-                        text: root.global_key_color_hex;
-                        edited => {
-                            root.global_key_color_hex = self.text;
-                            root.key_color_edited(self.text);
+                        Row {
+                            Text { text: "Border Color:"; vertical-alignment: center; color: white; }
+                            border_col_input := LineEdit {
+                                text: root.global_border_color_hex;
+                                edited => { root.global_border_color_hex = self.text; root.border_color_edited(self.text); }
+                            }
+                        }
+                        Row {
+                            Text { text: "Front-Line Emit:"; vertical-alignment: center; color: white; }
+                            CheckBox {
+                                checked: root.front_line_emit;
+                                toggled => { root.front_line_emit = self.checked; root.front_line_emit_toggled(self.checked); }
+                            }
+                            Text { text: "All notes emit from front-line keys"; color: #888888; vertical-alignment: center; }
+                        }
+                        Row {
+                            Text { text: "Flow Direction:"; vertical-alignment: center; color: white; }
+                            SpinBox {
+                                value: root.flow_direction; minimum: 0; maximum: 3; step-size: 1;
+                                edited => { root.flow_direction = self.value; root.flow_direction_edited(self.value); }
+                            }
+                            Text { text: "Flow Speed (px/tick):"; vertical-alignment: center; color: white; }
+                            SpinBox {
+                                value: root.flow_speed; minimum: 1; maximum: 50; step-size: 1;
+                                edited => { root.flow_speed = self.value; root.flow_speed_edited(self.value); }
+                            }
+                        }
+                        Row {
+                            Text { text: "Top Disappear Boundary (px):"; vertical-alignment: center; color: white; }
+                            SpinBox {
+                                value: root.global_top_boundary; minimum: 0; maximum: 800; step-size: 10;
+                                edited => { root.global_top_boundary = self.value; root.top_boundary_edited(self.value); }
+                            }
+                            Text { text: "Key Margin Width (px):"; vertical-alignment: center; color: white; }
+                            SpinBox {
+                                value: root.key_margin_width; minimum: 0; maximum: 100; step-size: 1;
+                                edited => { root.key_margin_width = self.value; root.key_margin_edited(self.value); }
+                            }
                         }
                     }
 
-                    Text {
-                        text: "Opacity %:";
-                        vertical-alignment: center;
-                        color: white;
-                    }
+                    Rectangle { height: 1px; background: #AAAAAA; }
 
-                    SpinBox {
-                        value: root.global_key_opacity_percent;
-                        minimum: 1;
-                        maximum: 100;
-                        step-size: 5;
-                        edited => {
-                            root.global_key_opacity_percent = self.value;
-                            root.key_opacity_edited(self.value);
+                    HorizontalLayout {
+                        spacing: 15px;
+                        Button {
+                            text: "Delete Selected Key";
+                            enabled: root.selected_index != -1;
+                            clicked => {
+                                root.confirm_delete_visible = true;
+                            }
                         }
-                    }
-                }
-            }
 
-            GridLayout {
-                spacing: 8px;
-
-                // 第1行
-                Row {
-                    Text {
-                        text: "Front-Line Emit:";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    CheckBox {
-                        checked: root.front_line_emit;
-                        toggled => {
-                            root.front_line_emit = self.checked;
-                            root.front_line_emit_toggled(self.checked);
+                        Button {
+                            text: "Save Config & Close";
+                            primary: true;
+                            clicked => {
+                                root.save_config();
+                            }
                         }
                     }
 
-                    Text {
-                        text: "All notes emit from front-line keys";
-                        color: #888888;
-                        vertical-alignment: center;
-                    }
-                }
-                // 第2行 - Flow Direction 和 Speed
-                Row {
-                    Text {
-                        text: "Flow Direction:";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    SpinBox {
-                        value: root.flow_direction;
-                        minimum: 0;
-                        maximum: 3;
-                        step-size: 1;
-                        edited => {
-                            root.flow_direction = self.value;
-                            root.flow_direction_edited(self.value);
+                    // Delete 键盘快捷键
+                    key_handler := FocusScope {
+                        enabled: root.selected_index != -1;
+                        key-pressed(ev) => {
+                            if (ev.text == "" || ev.text == "\u{7f}") {
+                                root.confirm_delete_visible = true;
+                                accept
+                            } else { reject }
                         }
                     }
-
-                    Text {
-                        text: "Flow Speed (px/tick):";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    SpinBox {
-                        value: root.flow_speed;
-                        minimum: 1;
-                        maximum: 50;
-                        step-size: 1;
-                        edited => {
-                            root.flow_speed = self.value;
-                            root.flow_speed_edited(self.value);
-                        }
-                    }
-                }
-
-                // 第3行 - Top Disappear Boundary 和 Key Margin Width
-                Row {
-                    Text {
-                        text: "Top Disappear Boundary (px):";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    SpinBox {
-                        value: root.global_top_boundary;
-                        minimum: 0;
-                        maximum: 800;
-                        step-size: 10;
-                        edited => {
-                            root.global_top_boundary = self.value;
-                            root.top_boundary_edited(self.value);
-                        }
-                    }
-
-                    Text {
-                        text: "Key Margin Width (px):";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    SpinBox {
-                        value: root.key_margin_width;
-                        minimum: 0;
-                        maximum: 100;
-                        step-size: 1;
-                        edited => {
-                            root.key_margin_width = self.value;
-                            root.key_margin_edited(self.value);
-                        }
-                    }
-                }
-
-                // 第4行 - Border Color
-                Row {
-                    Text {
-                        text: "Border Color:";
-                        vertical-alignment: center;
-                        color: white;
-                    }
-
-                    border_col_input := LineEdit {
-                        text: root.global_border_color_hex;
-                        edited => {
-                            root.global_border_color_hex = self.text;
-                            root.border_color_edited(self.text);
-                        }
-                    }
-                }
-            }
-
-            HorizontalLayout {
-                spacing: 15px;
-                Button {
-                    text: "Delete Selected Key";
-                    enabled: root.selected_index != -1;
-                    clicked => {
-                        root.confirm_delete_visible = true;
-                    }
-                }
-
-                Button {
-                    text: "Save Config & Close";
-                    primary: true;
-                    clicked => {
-                        root.save_config();
-                    }
-                }
-            }
-
-            // Delete 键盘快捷键：弹出确认框后回车确认
-            key_handler := FocusScope {
-                // 当有选中按键时，捕获 Delete/Backspace 键触发删除对话框
-                enabled: root.selected_index != -1;
-
-                key-pressed(ev) => {
-                    if (ev.text == "" || ev.text == "\u{7f}") { // Delete 键
-                        root.confirm_delete_visible = true;
-                        accept
-                    } else { reject }
                 }
             }
         }
@@ -700,13 +571,4 @@ export component SettingsWindow inherits Window {
         enabled: root.capturing_mode;
     }
 
-    // function sync_inputs_to_memory() {
-    //     root.update_key_config(
-    //         root.selected_index,
-    //         root.current_x,
-    //         root.current_y,
-    //         root.current_w,
-    //         root.current_h,
-    //         root.current_color);
-    // }
 }
