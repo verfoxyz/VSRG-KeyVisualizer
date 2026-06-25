@@ -1,0 +1,145 @@
+import { KeyPropsPanel } from "key_props_panel.slint";
+import { GlobalSettingsPanel } from "global_settings_panel.slint";
+
+export component ParamPanelWindow inherits Window {
+    min-width: 300px;
+    max-width: 300px;
+    no-frame: true;
+    background: #2a2a2a;
+    always-on-top: true;
+    height: max(150px, content_container.preferred-height + 36px);
+
+
+    // ===== 按键属性（与 SettingsWindow 同步） =====
+    in-out property <int> current_x;
+    in-out property <int> current_y;
+    in-out property <int> current_w;
+    in-out property <int> current_h;
+    in-out property <string> current_color;
+    in-out property <int> current_opacity_percent: 100;
+    in-out property <int> current_bar_width_percent: 100;
+    in-out property <int> selected_index: -1;
+    // 用于 KeyPropsPanel 回调的画布尺寸
+    in-out property <int> preview_width: 600;
+    in-out property <int> preview_height: 400;
+
+    // ===== 全局设置 =====
+    in-out property <string> global_key_color_hex;
+    in-out property <int> global_key_opacity_percent: 100;
+    in-out property <string> global_border_color_hex;
+    in-out property <bool> front_line_emit: false;
+    in-out property <int> flow_direction: 0;
+    in-out property <int> flow_speed: 4;
+    in-out property <int> global_top_boundary: 0;
+    in-out property <int> key_margin_width: 4;
+
+    // ===== 回调 =====
+    callback update_key_position_x(int, int, int, int);
+    callback update_key_position_y(int, int, int, int);
+    callback update_key_size(int, int, int);
+    callback update_key_color(int, string);
+    callback update_key_opacity(int, int);
+    callback update_key_bar_width_percent(int, int);
+    callback key_color_edited(string);
+    callback key_opacity_edited(int);
+    callback border_color_edited(string);
+    callback front_line_emit_toggled(bool);
+    callback flow_direction_edited(int);
+    callback flow_speed_edited(int);
+    callback top_boundary_edited(int);
+    callback key_margin_edited(int);
+    // 窗口拖拽（Slint 原生，带阈值判定）
+    callback drag_begin(int, int);  // 按下时的鼠标坐标 (TouchArea 局部)
+    callback drag_move(int, int);   // 拖拽中的鼠标坐标 (TouchArea 局部)
+    callback drag_end();
+
+    VerticalLayout {
+        spacing: 0px;
+        padding: 0px;
+
+        // ===== 标题栏（拖拽手柄） =====
+        Rectangle {
+            height: 28px;
+            background: #333333;
+            border-radius: 8px;
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                pointer-event(event) => {
+                    if (event.kind == PointerEventKind.down) {
+                        root.drag_begin(Math.round(self.mouse-x / 1px), Math.round(self.mouse-y / 1px));
+                    }
+                    if (event.kind == PointerEventKind.up) {
+                        root.drag_end();
+                    }
+                }
+                moved => {
+                    if (self.pressed) {
+                        root.drag_move(Math.round(self.mouse-x / 1px), Math.round(self.mouse-y / 1px));
+                    }
+                }
+            }
+            HorizontalLayout {
+                spacing: 6px;
+                padding-left: 8px;
+                Text {
+                    text: "⋮⋮";
+                    color: #888;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+                Text {
+                    text: "Parameter Config";
+                    color: #aaa;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+
+        // ===== 按键属性面板 =====
+        content_container := VerticalLayout {
+            padding: 8px;
+            spacing: 0px;
+            KeyPropsPanel {
+                current_x <=> root.current_x;
+                current_y <=> root.current_y;
+                current_w <=> root.current_w;
+                current_h <=> root.current_h;
+                current_color <=> root.current_color;
+                current_opacity_percent <=> root.current_opacity_percent;
+                current_bar_width_percent <=> root.current_bar_width_percent;
+                selected_index <=> root.selected_index;
+                preview_width: root.preview_width;
+                preview_height: root.preview_height;
+                update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
+                update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
+                update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
+                update_key_color(idx, c) => { root.update_key_color(idx, c); }
+                update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
+                update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
+            }
+
+            Rectangle { height: 1px; background: #AAAAAA; }
+
+            GlobalSettingsPanel {
+                global_key_color_hex <=> root.global_key_color_hex;
+                global_key_opacity_percent <=> root.global_key_opacity_percent;
+                global_border_color_hex <=> root.global_border_color_hex;
+                front_line_emit <=> root.front_line_emit;
+                flow_direction <=> root.flow_direction;
+                flow_speed <=> root.flow_speed;
+                global_top_boundary <=> root.global_top_boundary;
+                key_margin_width <=> root.key_margin_width;
+                key_color_edited(val) => { root.key_color_edited(val); }
+                key_opacity_edited(val) => { root.key_opacity_edited(val); }
+                border_color_edited(val) => { root.border_color_edited(val); }
+                front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
+                flow_direction_edited(val) => { root.flow_direction_edited(val); }
+                flow_speed_edited(val) => { root.flow_speed_edited(val); }
+                top_boundary_edited(val) => { root.top_boundary_edited(val); }
+                key_margin_edited(val) => { root.key_margin_edited(val); }
+            }
+        }
+    }
+}

@@ -1,8 +1,9 @@
 // src/windows/settings_window.rs
 use crate::calculate_window_size;
 use crate::configs;
+use crate::gui::param_panel_window::setup_param_panel_window;
 use crate::state::{AppState, UIAction};
-use crate::{AppConfig, KeyCaptureDialog, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
+use crate::{AppConfig, KeyCaptureDialog, ParamPanelWindow, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::{ComponentHandle, Model, ModelRc, VecModel, SharedString};
 use std::rc::Rc;
@@ -371,104 +372,85 @@ pub fn setup_settings_window(
         }
     });
 
-    // 5. 浮动参数面板拖拽（Rust 端维护位置，避免 Slint mouse-x/y 抖动）
+    // 5. 独立参数面板窗口开关（延迟创建避免 Slint 回调内重入卡死）
     {
-        use std::cell::Cell;
-        struct PanelDragState {
-            dragging: Cell<bool>,
-            /// 按下瞬间鼠标相对于面板的偏移（恒定值，在拖拽期间不变）
-            offset_x: Cell<i32>,
-            offset_y: Cell<i32>,
-            /// 面板尺寸缓存
-            panel_w: Cell<i32>,
-            panel_h: Cell<i32>,
-        }
-        let drag = &*Box::leak(Box::new(PanelDragState {
-            dragging: Cell::new(false),
-            offset_x: Cell::new(0),
-            offset_y: Cell::new(0),
-            panel_w: Cell::new(300),
-            panel_h: Cell::new(200),
-        }));
-
+        let state_toggle = state.clone();
         let s_weak = settings.as_weak();
-        settings.on_panel_drag_start(move |mx, my| {
-            if let Some(s) = s_weak.upgrade() {
-                // mx/my 是面板标题栏局部坐标（范围 [0,300)×[0,28)）
-                // offset = 鼠标在面板内的偏移 = mx（恒定值）
-                drag.offset_x.set(mx);
-                drag.offset_y.set(my);
-                drag.dragging.set(true);
-                s.set_panel_dragging(true);
-                tracing::debug!("[PANEL-DRAG] START: offset=({}, {}) panel=({}, {})",
-                    mx, my, s.get_panel_x() as i32, s.get_panel_y() as i32);
-            }
-        });
-
-        let s_weak = settings.as_weak();
-        settings.on_panel_drag_move(move |mx, my| {
-            if !drag.dragging.get() { return; }
-            if let Some(s) = s_weak.upgrade() {
-                // mx/my 是面板标题栏局部坐标
-                // target = panel_x + (mx - offset) = panel_x + delta
-                // 其中 offset 是按下时鼠标在面板内的恒定偏移
-                let px = s.get_panel_x() as i32;
-                let py = s.get_panel_y() as i32;
-                let target_x = px + (mx - drag.offset_x.get());
-                let target_y = py + (my - drag.offset_y.get());
-
-                // 边界 clamp
-                let win_w = s.window().size().width as i32;
-                let win_h = s.window().size().height as i32;
-                let pw = drag.panel_w.get();
-                let ph = drag.panel_h.get();
-
-                let final_x = target_x.clamp(0, (win_w - pw).max(0));
-                let final_y = target_y.clamp(6, (win_h - ph).max(16));
-
-                let old_x = s.get_panel_x() as i32;
-                let old_y = s.get_panel_y() as i32;
-                if final_x != old_x || final_y != old_y {
-                    s.set_panel_x(final_x as f32);
-                    s.set_panel_y(final_y as f32);
+        settings.on_toggle_param_panel(move || {
+            let s = match s_weak.upgrade() {
+                Some(s) => s,
+                None => {
+                    tracing::error!("[PARAM-PANEL] toggle: settings_weak 已失效");
+                    return;
                 }
+            };
 
-                tracing::debug!(
-                    "[PANEL-DRAG] MOVE: mouse=({}, {}) target=({}, {}) final=({}, {}) offset=({}, {})",
-                    mx, my, target_x, target_y, final_x, final_y,
-                    drag.offset_x.get(), drag.offset_y.get(),
-                );
-            }
-        });
+            tracing::debug!("[PARAM-PANEL] toggle_param_panel 被触发");
 
-        let s_weak = settings.as_weak();
-        settings.on_panel_drag_end(move || {
-            drag.dragging.set(false);
-            if let Some(s) = s_weak.upgrade() {
-                s.set_panel_dragging(false);
-                tracing::debug!("[PANEL-DRAG] END: panel=({}, {})", s.get_panel_x() as i32, s.get_panel_y() as i32);
-            }
-        });
-    }
-
-    // 6. 面板初始位置：延迟一帧等布局完成后，以设置窗口宽度为准设置 panel_x
-    {
-        let s_weak = settings.as_weak();
-        let init_timer = Box::new(slint::Timer::default());
-        init_timer.start(
-            slint::TimerMode::SingleShot,
-            std::time::Duration::ZERO,
-            move || {
-                if let Some(s) = s_weak.upgrade() {
-                    let window_w = s.window().size().width as f32;
-                    // 面板宽 300px，右侧预留 20px 边距
-                    let px = (window_w - 320.0).max(0.0);
-                    s.set_panel_x(px);
-                    tracing::debug!("[PANEL-DRAG] INIT (deferred): panel_x={:.0} (window_width={:.0})", px, window_w);
+            // 检查是否已有面板窗口（强引用直判）
+            let mut holder = state_toggle.param_panel_holder.lock().unwrap();
+            if holder.is_some() {
+                // 面板已存在：关闭并销毁它
+                tracing::debug!("[PARAM-PANEL] close existing panel window");
+                if let Some(ref panel) = *holder {
+                    panel.hide().unwrap();
                 }
-            },
-        );
-        Box::leak(init_timer);
+                *holder = None;
+                s.set_panel_window_open(false);
+                return;
+            }
+            drop(holder); // 提前释放锁，避免后续创建过程中持有锁
+
+            tracing::debug!("[PARAM-PANEL] scheduling deferred panel creation via timer");
+
+            // ⭐ 延迟到下一帧事件循环再创建窗口，避免 Slint 回调内重入
+            let state_create = state_toggle.clone();
+            let s_weak_create = s_weak.clone();
+            let create_timer = Box::new(slint::Timer::default());
+            create_timer.start(
+                slint::TimerMode::SingleShot,
+                std::time::Duration::ZERO,
+                move || {
+                    tracing::debug!("[PARAM-PANEL] deferred creation timer fired");
+                    let s = match s_weak_create.upgrade() {
+                        Some(s) => s,
+                        None => {
+                            tracing::error!("[PARAM-PANEL] deferred: settings_weak expired");
+                            return;
+                        }
+                    };
+
+                    if let Ok(panel) = ParamPanelWindow::new() {
+                        tracing::debug!("[PARAM-PANEL] ParamPanelWindow::new() OK");
+                        // 从 settings 窗口同步属性到面板窗口
+                        panel.set_selected_index(s.get_selected_index());
+                        panel.set_current_x(s.get_current_x());
+                        panel.set_current_y(s.get_current_y());
+                        panel.set_current_w(s.get_current_w());
+                        panel.set_current_h(s.get_current_h());
+                        panel.set_current_color(s.get_current_color());
+                        panel.set_current_opacity_percent(s.get_current_opacity_percent());
+                        panel.set_current_bar_width_percent(s.get_current_bar_width_percent());
+                        panel.set_global_key_color_hex(s.get_global_key_color_hex());
+                        panel.set_global_key_opacity_percent(s.get_global_key_opacity_percent());
+                        panel.set_global_border_color_hex(s.get_global_border_color_hex());
+                        panel.set_front_line_emit(s.get_front_line_emit());
+                        panel.set_flow_direction(s.get_flow_direction());
+                        panel.set_flow_speed(s.get_flow_speed());
+                        panel.set_global_top_boundary(s.get_global_top_boundary());
+                        panel.set_key_margin_width(s.get_key_margin_width());
+
+                        tracing::debug!("[PARAM-PANEL] calling setup_param_panel_window...");
+                        setup_param_panel_window(panel, state_create.clone(), s.as_weak());
+                        s.set_panel_window_open(true);
+                        tracing::debug!("[PARAM-PANEL] panel window setup complete");
+                    } else {
+                        tracing::error!("[PARAM-PANEL] ParamPanelWindow::new() failed");
+                    }
+                },
+            );
+            Box::leak(create_timer);
+        });
     }
 
     let state_save = state.clone();

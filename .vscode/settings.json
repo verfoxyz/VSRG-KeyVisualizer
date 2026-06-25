@@ -15,6 +15,10 @@
         "/^cargo build 2>&1 \\| Select-Object -Last \\d{1,2}$/": {
             "approve": true,
             "matchCommandLine": true
+        },
+        "/^cargo build --release 2>&1 \\| Select-Object -Last \\d{1,2}$/": {
+            "approve": true,
+            "matchCommandLine": true
         }
     }
 }

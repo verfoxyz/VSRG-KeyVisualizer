@@ -3,8 +3,6 @@ import { KeyData } from "../key_data.slint";
 import { ConfirmDeleteDialog, RenameDialog } from "../dialogs/dialogs.slint";
 import { ProfilePanel } from "profile_panel.slint";
 import { SettingsPreview } from "settings_preview.slint";
-import { KeyPropsPanel } from "key_props_panel.slint";
-import { GlobalSettingsPanel } from "global_settings_panel.slint";
 
 export component SettingsWindow inherits Window {
     min-height: 400px;
@@ -71,18 +69,11 @@ export component SettingsWindow inherits Window {
     callback delete_selected_keys();
     in-out property <bool> confirm_delete_visible: false;
 
-    // 浮动参数面板位置（Rust 端维护，通过 callback 更新）
-    in-out property <length> panel_x: 0px;
-    in-out property <length> panel_y: 0px;
-    // 面板拖拽中标志——底层 SettingsPreview 据此禁用 TouchArea，防止事件污染
-    in-out property <bool> panel_dragging: false;
-    // 面板显示/隐藏（默认隐藏）
-    in-out property <bool> panel_expanded: false;
+    // 独立参数面板窗口（由外部 Rust 管理）
+    in-out property <bool> panel_window_open: false;
+    callback toggle_param_panel();
     // 左侧 Profile 列表展开/折叠（默认折叠）
     in-out property <bool> profile_expanded: false;
-    callback panel_drag_start(int, int);  // 按下时传 (mouse_rel_x, mouse_rel_y)
-    callback panel_drag_move(int, int);   // 拖拽中传 (mouse_rel_x, mouse_rel_y)
-    callback panel_drag_end();            // 释放
 
     HorizontalLayout {
         padding: 15px;
@@ -158,8 +149,8 @@ export component SettingsWindow inherits Window {
                             horizontal-stretch: 1;
                         }
                         Button {
-                            text: root.panel_expanded ? "Hide Panel" : "Show Panel";
-                            clicked => { root.panel_expanded = !root.panel_expanded; }
+                            text: root.panel_window_open ? "Hide Panel" : "Show Panel";
+                            clicked => { root.toggle_param_panel(); }
                         }
                     }
 
@@ -193,113 +184,6 @@ export component SettingsWindow inherits Window {
                     }
                 }
             }
-
-            // ⭐ 浮动参数面板（整体显示/隐藏，默认隐藏）
-            if root.panel_expanded : param_panel := Rectangle {
-                x: root.panel_x;
-                y: root.panel_y;
-                width: 300px;
-                height: content_layout.preferred-height;
-                init => {
-                    root.panel_x = 0px;
-                    root.panel_y = 16px;
-                }
-                z: 1;
-                background: #2a2a2a;
-                border-radius: 8px;
-                border-width: 1px;
-                border-color: #555555;
-
-                content_layout := VerticalLayout {
-                    spacing: 0px;
-                    width: 100%;
-
-                    Rectangle {
-                        height: 28px;
-                        background: #333333;
-                        border-radius: 8px;
-
-                        TouchArea {
-                            width: 100%;
-                            height: 100%;
-                            pointer-event(event) => {
-                                if (event.kind == PointerEventKind.down) {
-                                    root.panel_drag_start(Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
-                                }
-                                if (event.kind == PointerEventKind.up) {
-                                    root.panel_drag_end();
-                                }
-                            }
-                            moved => {
-                                if (self.pressed) {
-                                    root.panel_drag_move(Math.round(self.mouse-x / 1px), Math.round(self.mouse-y / 1px));
-                                }
-                            }
-                        }
-
-                        HorizontalLayout {
-                            spacing: 6px;
-                            padding-left: 8px;
-                            Text {
-                                text: "⋮⋮";
-                                color: #888;
-                                font-size: 12px;
-                                vertical-alignment: center;
-                            }
-                            Text {
-                                text: "Parameter Config";
-                                color: #aaa;
-                                font-size: 12px;
-                                vertical-alignment: center;
-                            }
-                        }
-                    }
-
-                    // Key Properties 面板
-                    FocusScope {
-                        KeyPropsPanel {
-                            current_x <=> root.current_x;
-                            current_y <=> root.current_y;
-                            current_w <=> root.current_w;
-                            current_h <=> root.current_h;
-                            current_color <=> root.current_color;
-                            current_opacity_percent <=> root.current_opacity_percent;
-                            current_bar_width_percent <=> root.current_bar_width_percent;
-                            selected_index <=> root.selected_index;
-                            preview_width: Math.round(preview_box.width / 1px);
-                            preview_height: Math.round(preview_box.height / 1px);
-                            update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
-                            update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
-                            update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
-                            update_key_color(idx, c) => { root.update_key_color(idx, c); }
-                            update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
-                            update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
-                        }
-                    }
-
-                    Rectangle { height: 1px; background: #AAAAAA; }
-
-                    GlobalSettingsPanel {
-                        global_key_color_hex <=> root.global_key_color_hex;
-                        global_key_opacity_percent <=> root.global_key_opacity_percent;
-                        global_border_color_hex <=> root.global_border_color_hex;
-                        front_line_emit <=> root.front_line_emit;
-                        flow_direction <=> root.flow_direction;
-                        flow_speed <=> root.flow_speed;
-                        global_top_boundary <=> root.global_top_boundary;
-                        key_margin_width <=> root.key_margin_width;
-                        key_color_edited(val) => { root.key_color_edited(val); }
-                        key_opacity_edited(val) => { root.key_opacity_edited(val); }
-                        border_color_edited(val) => { root.border_color_edited(val); }
-                        front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
-                        flow_direction_edited(val) => { root.flow_direction_edited(val); }
-                        flow_speed_edited(val) => { root.flow_speed_edited(val); }
-                        top_boundary_edited(val) => { root.top_boundary_edited(val); }
-                        key_margin_edited(val) => { root.key_margin_edited(val); }
-                    }
-
-                } // ~ VerticalLayout
-            } // ~ param_panel
 
             key_handler := FocusScope {
                 enabled: root.selected_index != -1;

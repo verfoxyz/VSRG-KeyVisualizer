@@ -4,6 +4,7 @@
 mod configs;
 mod state;
 mod gui {
+    pub mod param_panel_window;
     pub mod settings_window;
 }
 mod events;
@@ -151,7 +152,7 @@ fn load_config() -> (AppConfig, String) {
 /// 保存配置到当前激活的 profile
 ///
 /// 需要从外部传入 profile 名（从 AppState 获取）。
-fn save_config_to_profile(name: &str, config: &AppConfig) {
+pub fn save_config_to_profile(name: &str, config: &AppConfig) {
     configs::save_profile(name, config);
 }
 
@@ -168,7 +169,7 @@ fn hex_dup(c: u8) -> u8 {
 
 /// 将十六进制颜色字符串解析为 slint::Color
 /// 支持 #RGB、#RRGGBB、#RRGGBBAA 三种格式
-fn hex_str_to_color(hex_str: &str) -> slint::Color {
+pub fn hex_str_to_color(hex_str: &str) -> slint::Color {
     let clean: String = hex_str.trim_start_matches('#')
         .chars().filter(|c| c.is_ascii_hexdigit()).collect();
 
@@ -207,7 +208,7 @@ fn hex_str_to_color(hex_str: &str) -> slint::Color {
 }
 
 /// 将 #RRGGBB 和透明度百分比(0-100)合并为 #RRGGBBAA
-fn merge_alpha(hex_rgb: &str, opacity_pct: i32) -> String {
+pub fn merge_alpha(hex_rgb: &str, opacity_pct: i32) -> String {
     let clean: String = hex_rgb.trim_start_matches('#')
         .chars().filter(|c| c.is_ascii_hexdigit()).collect();
     // 取前 6 位 hex，不足右补 '0'
@@ -221,7 +222,7 @@ fn merge_alpha(hex_rgb: &str, opacity_pct: i32) -> String {
 }
 
 /// 从 #RRGGBBAA 中提取 #RRGGBB 和透明度百分比(0-100)
-fn split_alpha(hex_with_alpha: &str) -> (String, i32) {
+pub fn split_alpha(hex_with_alpha: &str) -> (String, i32) {
     let clean: String = hex_with_alpha.trim_start_matches('#')
         .chars().filter(|c| c.is_ascii_hexdigit()).collect();
     let len = clean.len();
@@ -283,7 +284,7 @@ impl ToKeyData for KeyConfig {
 }
 
 /// 按键专用：为 KeyData 模型计算比例锚点（相对于画布宽高）
-fn compute_key_ratios(model: &ModelRc<KeyData>, canvas_w: f32, canvas_h: f32) {
+pub fn compute_key_ratios(model: &ModelRc<KeyData>, canvas_w: f32, canvas_h: f32) {
     let cw = canvas_w.max(1.0);
     let ch = canvas_h.max(1.0);
     for i in 0..model.row_count() {
@@ -295,7 +296,7 @@ fn compute_key_ratios(model: &ModelRc<KeyData>, canvas_w: f32, canvas_h: f32) {
 }
 
 /// 通用渲染函数：将任意实现了 `ToKeyData` 的切片转换为 `ModelRc<KeyData>`
-fn create_model<T: ToKeyData>(items: &[T]) -> ModelRc<KeyData> {
+pub fn create_model<T: ToKeyData>(items: &[T]) -> ModelRc<KeyData> {
     let data: Vec<KeyData> = items.iter().map(|i| i.to_key_data()).collect();
     Rc::new(VecModel::from(data)).into()
 }
@@ -312,7 +313,7 @@ fn create_model_with_selection<T: ToKeyData>(items: &[T], selected: &std::collec
 
 /// 线程安全的 HWND 包装（HWND 本身是 `*mut c_void`，不自动实现 Send）
 #[derive(Clone, Copy)]
-struct SafeHWND(windows::Win32::Foundation::HWND);
+pub struct SafeHWND(windows::Win32::Foundation::HWND);
 unsafe impl Send for SafeHWND {}
 unsafe impl Sync for SafeHWND {}
 
@@ -360,7 +361,7 @@ fn make_window_clickthrough(window: &winit::window::Window) {
     *MAIN_HWND.lock().unwrap() = Some(SafeHWND(hwnd));
 }
 
-fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
+pub fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
     let (width, height) = if config.keys.is_empty() {
         (1200, 500)
     } else {

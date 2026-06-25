@@ -2,9 +2,10 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
 use crate::{
-    AppConfig, BarNote, SettingsWindow, KeyCaptureDialog,
+    AppConfig, BarNote, ParamPanelWindow, SettingsWindow, KeyCaptureDialog,
     create_model_with_selection,
 };
+use slint::ComponentHandle;
 use crate::physics::MovementPipeline;
 
 /// 🌟 UI 意图枚举 —— 整个配置窗口所有用户操作的统一描述
@@ -77,6 +78,8 @@ pub struct AppState {
     pub notes_dirty: Arc<AtomicBool>,
     pub dialog_holder: Arc<Mutex<Option<slint::Weak<KeyCaptureDialog>>>>,
     pub settings_holder: Arc<Mutex<Option<slint::Weak<SettingsWindow>>>>,
+    /// 独立参数面板窗口强引用（持有 ownership 防止面板被 drop 销毁）
+    pub param_panel_holder: Arc<Mutex<Option<ParamPanelWindow>>>,
     /// 拖拽偏移：鼠标点击位置到按键左上角的偏移 (px)
     pub drag_offset: Arc<Mutex<(i32, i32)>>,
     /// Ctrl 多选集合（存储按键索引）
@@ -98,6 +101,7 @@ impl AppState {
             notes_dirty: Arc::new(AtomicBool::new(true)),
             dialog_holder: Arc::new(Mutex::new(None)),
             settings_holder: Arc::new(Mutex::new(None)),
+            param_panel_holder: Arc::new(Mutex::new(None)),
             drag_offset: Arc::new(Mutex::new((0, 0))),
             selected_indices: Arc::new(Mutex::new(HashSet::new())),
             current_profile: Arc::new(Mutex::new(profile_name.to_string())),
@@ -117,6 +121,7 @@ impl Clone for AppState {
             notes_dirty: Arc::clone(&self.notes_dirty),
             dialog_holder: Arc::clone(&self.dialog_holder),
             settings_holder: Arc::clone(&self.settings_holder),
+            param_panel_holder: Arc::clone(&self.param_panel_holder),
             drag_offset: Arc::clone(&self.drag_offset),
             selected_indices: Arc::clone(&self.selected_indices),
             current_profile: Arc::clone(&self.current_profile),
