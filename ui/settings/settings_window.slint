@@ -7,8 +7,8 @@ import { KeyPropsPanel } from "key_props_panel.slint";
 import { GlobalSettingsPanel } from "global_settings_panel.slint";
 
 export component SettingsWindow inherits Window {
-    min-height: 700px;
-    min-width: 1000px;
+    min-height: 400px;
+    min-width: 600px;
     title: "VSRG-KeyVisualizer config";
     background: #252525;
     always-on-top: true;
@@ -76,8 +76,10 @@ export component SettingsWindow inherits Window {
     in-out property <length> panel_y: 0px;
     // 面板拖拽中标志——底层 SettingsPreview 据此禁用 TouchArea，防止事件污染
     in-out property <bool> panel_dragging: false;
-    // 面板展开/折叠
-    in-out property <bool> panel_expanded: true;
+    // 面板显示/隐藏（默认隐藏）
+    in-out property <bool> panel_expanded: false;
+    // 左侧 Profile 列表展开/折叠（默认折叠）
+    in-out property <bool> profile_expanded: false;
     callback panel_drag_start(int, int);  // 按下时传 (mouse_rel_x, mouse_rel_y)
     callback panel_drag_move(int, int);   // 拖拽中传 (mouse_rel_x, mouse_rel_y)
     callback panel_drag_end();            // 释放
@@ -86,8 +88,8 @@ export component SettingsWindow inherits Window {
         padding: 15px;
         spacing: 15px;
 
-        // ====== 左侧：Profile 列表 ======
-        ProfilePanel {
+        // ====== 左侧：Profile 列表（可折叠，默认折叠） ======
+        if root.profile_expanded : ProfilePanel {
             profile_list <=> root.profile_list;
             profile_selected <=> root.profile_selected;
             current_profile_name <=> root.current_profile_name;
@@ -98,6 +100,23 @@ export component SettingsWindow inherits Window {
             renaming_index <=> root.renaming_index;
             renaming_text <=> root.renaming_text;
         }
+        if !root.profile_expanded : Rectangle {
+            width: 24px;
+            background: #1e1e1e;
+            border-radius: 6px;
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.profile_expanded = true; }
+            }
+            Text {
+                text: "▶";
+                color: #888;
+                font-size: 14px;
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
 
         // ====== 右侧容器：画布预览 + 浮动参数面板 ======
         Rectangle {
@@ -105,39 +124,82 @@ export component SettingsWindow inherits Window {
             background: transparent;
             clip: false;
 
-            VerticalLayout {
-                spacing: 15px;
-                horizontal-stretch: 1;
-
-                Text {
-                    text: "Location Preview (Drag to move, Click to select)";
-                    color: #aaa;
+            HorizontalLayout {
+                spacing: 4px;
+                // ⭐ Profile 折叠切换条（仅展开时显示收缩按钮）
+                if root.profile_expanded : Rectangle {
+                    width: 20px;
+                    background: #1e1e1e;
+                    border-radius: 4px;
+                    TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => { root.profile_expanded = false; }
+                    }
+                    Text {
+                        text: "◀";
+                        color: #888;
+                        font-size: 14px;
+                        vertical-alignment: center;
+                        horizontal-alignment: center;
+                    }
                 }
 
-                preview_box := SettingsPreview {
+                VerticalLayout {
+                    spacing: 15px;
                     horizontal-stretch: 1;
-                    vertical-stretch: 1;
-                    preview_keys <=> root.root_preview_keys;
-                    key_margin_width <=> root.key_margin_width;
-                    global_key_color <=> root.global_key_color;
-                    selected_index <=> root.selected_index;
-                    canvas_enabled: true;
-                    handle_canvas_pointer_down(x, y, ctrl) => { root.handle_canvas_pointer_down(x, y, ctrl); }
-                    update_key_position(idx, mx, my, cw, ch) => { root.update_key_position(idx, mx, my, cw, ch); }
-                    add_new_key => { root.add_new_key(); }
-                    request_focus => { key_handler.focus(); }
+
+                    // ⭐ "Location Preview" 文本 + 面板切换按钮
+                    HorizontalLayout {
+                        spacing: 8px;
+                        Text {
+                            text: "Location Preview (Drag to move, Click to select)";
+                            color: #aaa;
+                            horizontal-stretch: 1;
+                        }
+                        Button {
+                            text: root.panel_expanded ? "Hide Panel" : "Show Panel";
+                            clicked => { root.panel_expanded = !root.panel_expanded; }
+                        }
+                    }
+
+                    preview_box := SettingsPreview {
+                        horizontal-stretch: 1;
+                        vertical-stretch: 1;
+                        preview_keys <=> root.root_preview_keys;
+                        key_margin_width <=> root.key_margin_width;
+                        global_key_color <=> root.global_key_color;
+                        selected_index <=> root.selected_index;
+                        canvas_enabled: true;
+                        handle_canvas_pointer_down(x, y, ctrl) => { root.handle_canvas_pointer_down(x, y, ctrl); }
+                        update_key_position(idx, mx, my, cw, ch) => { root.update_key_position(idx, mx, my, cw, ch); }
+                        add_new_key => { root.add_new_key(); }
+                        request_focus => { key_handler.focus(); }
+                    }
+
+                    // ⭐ 操作按钮（画布预览下方靠左）
+                    HorizontalLayout {
+                        spacing: 15px;
+                        Button {
+                            text: "Delete Selected Key";
+                            enabled: root.selected_index != -1;
+                            clicked => { root.confirm_delete_visible = true; }
+                        }
+                        Button {
+                            text: "Save Config & Close";
+                            primary: true;
+                            clicked => { root.save_config(); }
+                        }
+                    }
                 }
             }
 
-            // 浮动参数面板（可拖拽，z 轴在前）
-            param_panel := Rectangle {
-                // x/y 使用面板当前绝对位置 panel_x/panel_y
+            // ⭐ 浮动参数面板（整体显示/隐藏，默认隐藏）
+            if root.panel_expanded : param_panel := Rectangle {
                 x: root.panel_x;
                 y: root.panel_y;
                 width: 300px;
-                // ⭐ 动态高度：展开时由内容撑开，折叠时仅标题栏 28px
-                height: root.panel_expanded ? content_layout.preferred-height : 28px;
-                clip: true;
+                height: content_layout.preferred-height;
                 init => {
                     root.panel_x = 0px;
                     root.panel_y = 16px;
@@ -151,9 +213,7 @@ export component SettingsWindow inherits Window {
                 content_layout := VerticalLayout {
                     spacing: 0px;
                     width: 100%;
-                    // 移除 height: 100%，让高度由内容决定
 
-                    // 拖拽标题栏（点击切换折叠）
                     Rectangle {
                         height: 28px;
                         background: #333333;
@@ -164,14 +224,9 @@ export component SettingsWindow inherits Window {
                             height: 100%;
                             pointer-event(event) => {
                                 if (event.kind == PointerEventKind.down) {
-                                    debug("[PANEL-DRAG] DOWN: pressed=(",
-                                        Math.round(self.pressed-x / 1px), ",", Math.round(self.pressed-y / 1px),
-                                        ") panel=(", Math.round(root.panel_x / 1px), ",", Math.round(root.panel_y / 1px), ")");
                                     root.panel_drag_start(Math.round(self.pressed-x / 1px), Math.round(self.pressed-y / 1px));
                                 }
                                 if (event.kind == PointerEventKind.up) {
-                                    debug("[PANEL-DRAG] UP: panel=(",
-                                        Math.round(root.panel_x / 1px), ",", Math.round(root.panel_y / 1px), ")");
                                     root.panel_drag_end();
                                 }
                             }
@@ -200,86 +255,61 @@ export component SettingsWindow inherits Window {
                         }
                     }
 
-                    // ⭐ 动态高度：折叠时隐藏内容，展开时显示
-                    if root.panel_expanded : VerticalLayout {
-                        spacing: 0px;
-                        padding: 0px;
-
-                        // Key Properties 面板
-                        FocusScope {
-                            KeyPropsPanel {
-                                current_x <=> root.current_x;
-                                current_y <=> root.current_y;
-                                current_w <=> root.current_w;
-                                current_h <=> root.current_h;
-                                current_color <=> root.current_color;
-                                current_opacity_percent <=> root.current_opacity_percent;
-                                current_bar_width_percent <=> root.current_bar_width_percent;
-                                selected_index <=> root.selected_index;
-                                preview_width: Math.round(preview_box.width / 1px);
-                                preview_height: Math.round(preview_box.height / 1px);
-                                update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
-                                update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
-                                update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
-                                update_key_color(idx, c) => { root.update_key_color(idx, c); }
-                                update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
-                                update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
-                            }
+                    // Key Properties 面板
+                    FocusScope {
+                        KeyPropsPanel {
+                            current_x <=> root.current_x;
+                            current_y <=> root.current_y;
+                            current_w <=> root.current_w;
+                            current_h <=> root.current_h;
+                            current_color <=> root.current_color;
+                            current_opacity_percent <=> root.current_opacity_percent;
+                            current_bar_width_percent <=> root.current_bar_width_percent;
+                            selected_index <=> root.selected_index;
+                            preview_width: Math.round(preview_box.width / 1px);
+                            preview_height: Math.round(preview_box.height / 1px);
+                            update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
+                            update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
+                            update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
+                            update_key_color(idx, c) => { root.update_key_color(idx, c); }
+                            update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
+                            update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
                         }
+                    }
 
-                        Rectangle { height: 1px; background: #AAAAAA; }
+                    Rectangle { height: 1px; background: #AAAAAA; }
 
-                        // Global Settings 面板
-                        GlobalSettingsPanel {
-                            global_key_color_hex <=> root.global_key_color_hex;
-                            global_key_opacity_percent <=> root.global_key_opacity_percent;
-                            global_border_color_hex <=> root.global_border_color_hex;
-                            front_line_emit <=> root.front_line_emit;
-                            flow_direction <=> root.flow_direction;
-                            flow_speed <=> root.flow_speed;
-                            global_top_boundary <=> root.global_top_boundary;
-                            key_margin_width <=> root.key_margin_width;
-                            key_color_edited(val) => { root.key_color_edited(val); }
-                            key_opacity_edited(val) => { root.key_opacity_edited(val); }
-                            border_color_edited(val) => { root.border_color_edited(val); }
-                            front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
-                            flow_direction_edited(val) => { root.flow_direction_edited(val); }
-                            flow_speed_edited(val) => { root.flow_speed_edited(val); }
-                            top_boundary_edited(val) => { root.top_boundary_edited(val); }
-                            key_margin_edited(val) => { root.key_margin_edited(val); }
-                        }
+                    GlobalSettingsPanel {
+                        global_key_color_hex <=> root.global_key_color_hex;
+                        global_key_opacity_percent <=> root.global_key_opacity_percent;
+                        global_border_color_hex <=> root.global_border_color_hex;
+                        front_line_emit <=> root.front_line_emit;
+                        flow_direction <=> root.flow_direction;
+                        flow_speed <=> root.flow_speed;
+                        global_top_boundary <=> root.global_top_boundary;
+                        key_margin_width <=> root.key_margin_width;
+                        key_color_edited(val) => { root.key_color_edited(val); }
+                        key_opacity_edited(val) => { root.key_opacity_edited(val); }
+                        border_color_edited(val) => { root.border_color_edited(val); }
+                        front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
+                        flow_direction_edited(val) => { root.flow_direction_edited(val); }
+                        flow_speed_edited(val) => { root.flow_speed_edited(val); }
+                        top_boundary_edited(val) => { root.top_boundary_edited(val); }
+                        key_margin_edited(val) => { root.key_margin_edited(val); }
+                    }
 
-                        Rectangle { height: 1px; background: #AAAAAA; }
+                } // ~ VerticalLayout
+            } // ~ param_panel
 
-                        HorizontalLayout {
-                            height: 40px;
-                            spacing: 15px;
-                            padding: 4px;
-                            Button {
-                                text: "Delete Selected Key";
-                                enabled: root.selected_index != -1;
-                                clicked => { root.confirm_delete_visible = true; }
-                            }
-                            Button {
-                                text: "Save Config & Close";
-                                primary: true;
-                                clicked => { root.save_config(); }
-                            }
-                        }
-
-                    } // ~ if expanded
-
-                    key_handler := FocusScope {
-                        enabled: root.selected_index != -1;
-                        key-pressed(ev) => {
-                            if (ev.text == "" || ev.text == "\u{7f}") {
-                                root.confirm_delete_visible = true;
-                                accept
-                            } else { reject }
-                        }
-                    } // ~ key_handler
-                } // ~ param_panel VerticalLayout
-        } // ~ param_panel Rectangle
+            key_handler := FocusScope {
+                enabled: root.selected_index != -1;
+                key-pressed(ev) => {
+                    if (ev.text == "" || ev.text == "\u{7f}") {
+                        root.confirm_delete_visible = true;
+                        accept
+                    } else { reject }
+                }
+            } // ~ key_handler
     } // ~ 右侧容器 Rectangle
 } // ~ HorizontalLayout (外层)
 

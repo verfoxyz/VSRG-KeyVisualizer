@@ -471,27 +471,6 @@ pub fn setup_settings_window(
         Box::leak(init_timer);
     }
 
-    // 7. 每秒输出一次面板和鼠标位置（debug 调试用，仅 debug 构建）
-    #[cfg(debug_assertions)]
-    {
-        let s_weak = settings.as_weak();
-        let debug_timer = Box::new(slint::Timer::default());
-        debug_timer.start(
-            slint::TimerMode::Repeated,
-            std::time::Duration::from_secs(1),
-            move || {
-                if let Some(s) = s_weak.upgrade() {
-                    tracing::debug!(
-                        "[PANEL-DEBUG] panel=({:.0}, {:.0})",
-                        s.get_panel_x(),
-                        s.get_panel_y(),
-                    );
-                }
-            },
-        );
-        Box::leak(debug_timer); // 故意泄漏，Timer 在 settings 窗口整个生命周期内持续运行
-    }
-
     let state_save = state.clone();
     let s_weak = settings.as_weak();
     settings.on_save_config(move || {

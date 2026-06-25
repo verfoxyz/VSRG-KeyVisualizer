@@ -12,7 +12,7 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "/^cargo build 2>&1 \\| Select-Object -Last \\d{2}$/": {
+        "/^cargo build 2>&1 \\| Select-Object -Last \\d{1,2}$/": {
             "approve": true,
             "matchCommandLine": true
         }
