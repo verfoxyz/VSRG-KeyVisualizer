@@ -227,12 +227,12 @@ VSRG-KeyVisualizer/
 | `src/core/config_def.rs` | `AppConfig`/`KeyConfig`/`BarNote`/`MyKeyEvent` 核心数据类型定义 + `Default` 实现 + serde 序列化 |
 | `src/core/config_manager.rs` | `ConfigManager` — `apply_to_main_window()` 封装 AppConfig→UI State 转换：基础属性更新、窗口尺寸/位置恢复、按键比例锚点、模型投递。解耦 `on_save_config` 中的臃肿逻辑 |
 | `src/core/color.rs` | `hex_str_to_color` 解析 #RGB/#RRGGBB/#RRGGBBAA、`merge_alpha`/`split_alpha` 透明度合并拆分 |
-| `src/ui/state.rs` | `AppState` 全部共享状态（15 个 `Arc` 字段）、`PanelTimerGroup`（`follow_timer`/`close_check_timer` 持有）、`UIAction` 枚举（11 种操作）、`dispatch()` 中央分发器、`param_panel_holder` 强引用管理面板生命周期 |
+| `src/ui/state.rs` | `AppState` 全部共享状态（14 个 `Arc` 字段）、`PanelTimerGroup`（`follow_timer`/`close_check_timer` 持有）、`UIAction` 枚举（11 种操作）、`dispatch()` 中央分发器、`param_panel_holder` 强引用管理面板生命周期 |
 | `src/ui/model.rs` | `ToKeyData` trait、`create_model`/`create_model_with_selection`（含多选高亮）、`compute_key_ratios`、`update_key_visual_state`（HashMap 索引 O(1)）、`build_key_index_map`/`KeyIndexMap` 类型 |
 | `src/platform/window.rs` | `make_window_clickthrough`（Win32 LWA_COLORKEY）、`restore_window_position`（多显示器遍历）、`calculate_window_size`、`SafeHWND`/`MAIN_HWND` 全局 |
 | `src/configs.rs` | 多 profile 管理：目录初始化、旧 config.json 迁移、`load_active_profile`/`save_profile`/`list_profiles` |
 | `src/events.rs` | `start_event_timer` 16ms 定时器驱动渲染循环、`MacroRecorder` 捕获按键写入配置、`LiveVisualizer` 音符生成/生长/移动/回收。按键索引通过 `OnceLock<KeyIndexMap>` 缓存 |
-| `src/physics.rs` | `MovementPipeline` 三阶段管线（磁吸吸附→AABB碰撞→边界限幅）、`find_best_snap_skipping` 候选吸附、`resolve_one_collision` 碰撞解析、`spatial_hash` 空间哈希（≥30 键自动） |
+| `src/physics.rs` | `MovementPipeline` 三阶段管线（磁吸吸附→AABB碰撞→边界限幅）、`CollisionBox` 结构体封装碰撞盒、`find_best_snap_skipping` 候选吸附、`resolve_one_collision` 碰撞解析、`spatial_hash` 空间哈希（≥30 键自动） |
 | `src/ri_table.rs` | Windows Raw Input 虚拟键码 → rdev 字符串映射表 |
 | `src/gui/settings_window.rs` | `setup_settings_window()` 配置窗口初始化、所有 Slint callback 绑定、`config_dirty` 脏标记追踪、保存/关闭按钮联动（脏则保留，干净则关）、参数面板创建。`on_save_config` 通过 `ConfigManager` 解耦 |
 | `src/gui/param_panel_window.rs` | 独立参数面板生命周期管理：创建/显示/隐藏/关闭、SNAPPED 状态机（吸附/跟随/解除）、16ms 后台轮询线程 SetWindowPos 定位、`PanelPropertySnapshot` diff 按需属性同步（附合并在 follow_timer 中） |
@@ -302,7 +302,7 @@ VS Code 调试配置在 `.vscode/launch.json`：**Debug executable 'VSRG-KeyVisu
 - 项目使用 `#![windows_subsystem = "windows"]` + Cargo rustflags 双重隐藏控制台，`cargo run` 仍可输出日志。
 - `tracing` + `tracing-subscriber` 用于日志，`main()` 中初始化 `tracing_subscriber::fmt()`。Release 构建自动使用 `INFO` 级别，Debug 使用 `DEBUG`。
 - 物理引擎 (`physics.rs`) 在按键数 ≥ `INDEXING_THRESHOLD (30)` 时自动启用空间哈希索引，新增碰撞逻辑需同步更新索引。
-- **`lazy_static` 已导入但未使用** — 实际使用 `OnceLock` 替代。
+- `CollisionBox` 结构体（`physics.rs`）封装 AABB 碰撞盒（`x1/x2/y1/y2`），替代传递 4 个 `&mut i32` 参数，`into_origin()` 方法还原为原始坐标。
 - **独立参数面板窗口拖拽**：使用 Slint `TouchArea` 回调传递屏幕坐标，`offset = cursor - window_position` 固定偏移锁定法。`DRAG_STATE` 静态原子标志控制后台线程暂停。**非** `HTCAPTION/SendMessageW` 方案。
 - **多选删除**：`BatchDeleteKeys` 从大到小排序删除，避免索引偏移。
 - **右键菜单**：`init => { fs.focus(); }` 打开即聚焦，`changed focused` 失焦自动关闭。

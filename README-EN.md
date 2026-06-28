@@ -18,15 +18,16 @@ Currently supports Windows only.
 
 Main window supports **drag to move**, **double-click to open config**, and **right-click context menu** (open config / close).
 
-Still improving, but basically functional.
+It is basically usable.
 
 ## Key Features
 
 * **Real-time Performance**: Built with Rust and native Windows Raw Input, 60fps smooth rendering.
 * **Key Visualization**: Waterfall flow animation, customizable key layout, color, size, and opacity.
-* **Flexible Config**: Graphical configuration window with Drag & Drop key positioning.
+* **Flexible Config**: Graphical configuration window with Drag & Drop key positioning, plus an independent floating parameter panel for real-time property editing.
 * **Multi-Select Editing**: Ctrl+Click to select multiple keys, batch move/resize/color/opacity/bar width.
 * **Snap & Collision**: Keys snap to alignment guides and avoid overlap during drag.
+* **Profile Management**: Multiple configurations with one-click switching; supports create, rename, and delete profiles.
 * **Transparent Window**: Main window has transparent background with click-through for uninterrupted gameplay.
 * **Lightweight**: Minimal system resource usage, won't affect game performance.
 
@@ -61,14 +62,17 @@ cargo run --release
 ### Configuration Window
 - **Canvas drag**: Drag keys to reposition (snap-to-grid enabled)
 - **Ctrl+Click**: Multi-select keys
-- **Right panel**: Edit X/Y position, width/height, pressed color, opacity, bar width percentage
+- **Floating parameter panel**: A standalone window for editing X/Y position, width/height, pressed color, opacity, bar width percentage
 - **Multi-select editing**: Batch edit properties for all selected keys
 - **Delete key / button**: Delete selected keys (with confirmation dialog, Enter to confirm, ESC to cancel)
 - **+ Add Key**: Add a new key (press any key to bind)
+- **Profile management**: Switch between configurations via the sidebar; create, rename, or delete profiles
 
 ### Configuration
 
-Settings are saved in `config.json`, including key layout, colors, flow direction and speed. Can be adjusted graphically via the configuration window.
+Settings are saved as JSON files in the `configs/profiles/` directory, supporting multiple profiles.
+The active profile is tracked via `configs/.active`.
+All parameters including key layout, colors, flow direction and speed can be adjusted graphically via the configuration window.
 
 ## License
 
