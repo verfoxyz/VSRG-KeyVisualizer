@@ -149,16 +149,32 @@ configs/
 ```
 VSRG-KeyVisualizer/
 ├── src/                            # Rust 源代码
-│   ├── main.rs                     # 入口、AppConfig/KeyConfig/BarNote 结构体、config I/O、
-│   │                               #   MainWindow 回调绑定、Raw Input 消息窗口、窗口穿透与拖拽
-│   ├── configs.rs                  # 多 profile 配置管理（目录结构、迁移、CRUD）
-│   ├── events.rs                   # 16ms 定时器渲染循环、MacroRecorder、LiveVisualizer
-│   ├── physics.rs                  # 磁吸吸附、AABB 碰撞、画布边界、MovementPipeline、空间哈希
-│   ├── ri_table.rs                 # Windows Raw Input 虚拟键码 → rdev 字符串映射表
-│   ├── state.rs                    # AppState（共享状态）、UIAction 枚举、dispatch 中央分发器
-│   └── gui/
-│       ├── settings_window.rs      # 配置窗口回调绑定（所有 on_<callback> 注册、config_dirty 标记）
-│       └── param_panel_window.rs   # 独立参数面板窗口管理（拖拽、吸附跟随、后台轮询线程）
+│   ├── main.rs                     # 入口，~210 行：模块声明、MainWindow 回调绑定、
+│   │                               #    Raw Input 消息窗口、事件循环启动
+│   ├── core/                       # 核心数据结构和基础工具
+│   │   ├── mod.rs
+│   │   ├── config_def.rs           # AppConfig/KeyConfig/BarNote/MyKeyEvent 定义 + Default
+│   │   └── color.rs                # hex_str_to_color/merge_alpha/split_alpha 颜色工具
+│   ├── ui/                         # UI 逻辑
+│   │   ├── mod.rs
+│   │   ├── state.rs                # AppState（14 个 Arc 字段）、UIAction 枚举、dispatch 中央分发器
+│   │   └── model.rs                # ToKeyData trait、create_model/create_model_with_selection、
+│   │                                #   compute_key_ratios、update_key_visual_state（O(1) HashMap 索引）、
+│   │                                #   build_key_index_map、KeyIndexMap 类型
+│   ├── platform/                   # 平台相关
+│   │   ├── mod.rs
+│   │   └── window.rs               # make_window_clickthrough、restore_window_position（多显示器）、
+│   │                                #   calculate_window_size、SafeHWND、MAIN_HWND 全局
+│   ├── gui/                        # Slint 窗口回调绑定
+│   │   ├── settings_window.rs      # 配置窗口初始化、所有 on_<callback> 绑定、config_dirty 标记、
+│   │   │                           #   保存/关闭按钮联动、参数面板创建
+│   │   └── param_panel_window.rs   # 独立参数面板窗口管理（拖拽、吸附跟随、16ms 后台轮询线程）
+│   ├── configs.rs                  # 多 profile 管理（目录初始化、config.json 迁移、CRUD）
+│   ├── events.rs                   # start_event_timer 16ms 驱动渲染循环、MacroRecorder、
+│   │                               #   LiveVisualizer 音符生成/生长/移动/回收
+│   ├── physics.rs                  # MovementPipeline 三阶段管线、磁吸吸附、AABB 碰撞、
+│   │                               #   空间哈希索引（≥30 键自动启用）
+│   └── ri_table.rs                 # Windows Raw Input 虚拟键码 → rdev 字符串映射表
 ├── ui/                             # Slint 界面文件 (.slint)
 │   ├── application.slint           # 组件聚合入口（export 所有窗口）
 │   ├── key_data.slint              # KeyData 结构体定义（name/x/y/w/h/selected/anchor_ratio 等）
@@ -189,13 +205,18 @@ VSRG-KeyVisualizer/
 
 | 文件 | 职责 |
 |------|------|
-| `src/main.rs` | 入口、`AppConfig`/`KeyConfig`/`BarNote` 数据模型、config 读写、MainWindow 回调绑定、Raw Input 消息窗口&消息泵、窗口穿透/拖拽/位置恢复、`ToKeyData` trait、`hex_str_to_color`/`merge_alpha`/`split_alpha`、`PRIMARY_SCREEN_SIZE` OnceLock 缓存、`pub mod param_panel_window` 模块导出 |
-| `src/configs.rs` | 多 profile 管理：目录初始化、config.json 迁移、`load_active_profile`/`save_profile`/`list_profiles` |
-| `src/events.rs` | `start_event_timer` 16ms 定时器驱动渲染循环、`MacroRecorder` 捕获按键并写入配置、`LiveVisualizer` 音符生成/生长/移动/回收 |
-| `src/physics.rs` | `MovementPipeline` 三阶段管线、`find_best_snap_skipping` 磁吸候选、`resolve_one_collision` AABB 碰撞解析、`spatial_hash` 空间哈希索引（≥30 键自动启用） |
-| `src/state.rs` | `AppState` 全部共享状态（13 个 `Arc` 字段）、`UIAction` 枚举、`dispatch()` 中央分发器（选中管理/拖拽/批量编辑/删除）、`param_panel_holder` 强引用管理面板窗口生命周期 |
-| `src/gui/settings_window.rs` | `setup_settings_window()` 配置窗口初始化、所有 Slint callback 绑定、`config_dirty` 脏标记追踪、`setup_param_panel_window()` 创建独立面板、保存/关闭按钮逻辑（脏则保存并停留，干净则关闭） |
-| `src/gui/param_panel_window.rs` | 独立参数面板窗口生命周期管理：创建/显示/隐藏/关闭、SNAPPED 状态机（吸附/跟随/解除）、橡胶筋拖拽（virtual position 模型）、16ms 后台轮询线程（SetWindowPos 定位）、SETTINGS_HWND 检测拖拽自行解除吸附 |
+| `src/main.rs` | 入口、模块声明、MainWindow 回调绑定（单击/双击/拖拽/设置/关闭）、Raw Input 消息窗口线程、事件循环启动。返回 `Result<(), Box<dyn Error>>` |
+| `src/core/config_def.rs` | `AppConfig`/`KeyConfig`/`BarNote`/`MyKeyEvent` 核心数据类型定义 + `Default` 实现 + serde 序列化 |
+| `src/core/color.rs` | `hex_str_to_color` 解析 #RGB/#RRGGBB/#RRGGBBAA、`merge_alpha`/`split_alpha` 透明度合并拆分 |
+| `src/ui/state.rs` | `AppState` 全部共享状态（14 个 `Arc` 字段）、`UIAction` 枚举（11 种操作）、`dispatch()` 中央分发器、`param_panel_holder` 强引用管理面板生命周期 |
+| `src/ui/model.rs` | `ToKeyData` trait、`create_model`/`create_model_with_selection`（含多选高亮）、`compute_key_ratios`、`update_key_visual_state`（HashMap 索引 O(1)）、`build_key_index_map`/`KeyIndexMap` 类型 |
+| `src/platform/window.rs` | `make_window_clickthrough`（Win32 LWA_COLORKEY）、`restore_window_position`（多显示器遍历）、`calculate_window_size`、`SafeHWND`/`MAIN_HWND` 全局 |
+| `src/configs.rs` | 多 profile 管理：目录初始化、旧 config.json 迁移、`load_active_profile`/`save_profile`/`list_profiles` |
+| `src/events.rs` | `start_event_timer` 16ms 定时器驱动渲染循环、`MacroRecorder` 捕获按键写入配置、`LiveVisualizer` 音符生成/生长/移动/回收。按键索引通过 `OnceLock<KeyIndexMap>` 缓存 |
+| `src/physics.rs` | `MovementPipeline` 三阶段管线（磁吸吸附→AABB碰撞→边界限幅）、`find_best_snap_skipping` 候选吸附、`resolve_one_collision` 碰撞解析、`spatial_hash` 空间哈希（≥30 键自动） |
+| `src/ri_table.rs` | Windows Raw Input 虚拟键码 → rdev 字符串映射表 |
+| `src/gui/settings_window.rs` | `setup_settings_window()` 配置窗口初始化、所有 Slint callback 绑定、`config_dirty` 脏标记追踪、保存/关闭按钮联动（脏则保留，干净则关）、参数面板创建 |
+| `src/gui/param_panel_window.rs` | 独立参数面板生命周期管理：创建/显示/隐藏/关闭、SNAPPED 状态机（吸附/跟随/解除）、16ms 后台轮询线程 SetWindowPos 定位 |
 | `ui/main_window/main_window.slint` | 透明窗口、`for key_info in keys` 按键渲染 + `for bar in bar_notes` 音符渲染、TouchArea 交互、右键菜单 PopupWindow |
 | `ui/settings/param_panel_window.slint` | 独立参数面板窗口（no-frame、自定义 drag 回调、可折叠 KeyProps/GlobalSettings） |
 | `ui/settings/settings_window.slint` | 配置窗口整体布局：左侧可折叠 Profile 列表 + 右侧画布预览 + `config_dirty` 属性 + 底部操作按钮（Save/Close 联动） |
@@ -268,11 +289,16 @@ VS Code 调试配置在 `.vscode/launch.json`：**Debug executable 'VSRG-KeyVisu
 - **弹出窗口防重复**：创建设置窗口和按键捕获对话框前检查 holder。
 - **无右/下边界限幅**：`apply_canvas_boundary()` 只限制左和上，按键可拖出画布右下。
 - **模型重建**：每帧调用 `set_bar_notes(create_model(&notes))` 重建 VecModel，注意性能损耗。
+- **按键视觉状态 O(1) 更新**：`update_key_visual_state` 通过 `KeyIndexMap`（`HashMap<String, usize>`）缓存按键名到模型索引的映射，在 `events.rs` 的 `OnceLock` 中初始化，避免每帧 O(n) 遍历。
+- **每帧 HashMap 重建避免**：`events.rs` 中 `sort_by` 排序直接使用 `key_positions` Vec 线性查找位置，不再每帧重建 `HashMap<String, (i32, i32)>`。
 - **profile 切换不回检查未保存变更**：直接丢弃 `temp_config`。
 - **配置文件默认**：`panel_expanded: false`（参数面板默认隐藏），`profile_expanded: false`（Profile 列表默认折叠）。
 - **UI 文件结构**：已按功能分类到 `ui/main_window/`、`ui/settings/`、`ui/dialogs/` 子目录，通过 `application.slint` 统一导出。
+- **Rust 源文件结构**：按功能分类到 `core/`（核心数据）、`ui/`（UI 逻辑）、`platform/`（平台层）、`gui/`（Slint 回调）四个文件夹。
 - **Profile 折叠**：左侧列表默认折叠（24px 竖条 + ▶ 图标），点击展开；展开后右侧容器边缘显示 ◀ 收缩按钮。由 `profile_expanded` 属性控制。
 - **参数面板显隐**：通过「Show Panel」/「Hide Panel」按钮控制，按钮位于画布预览右上角。`panel_expanded` 属性控制整个 `param_panel` 是否在设置窗口内渲染。独立窗口通过 `param_panel_holder`（强引用）管理生命周期。
 - **Save Config / Close 按钮**：按钮固定在画布预览下方靠左。`config_dirty` 控制按钮行为——脏时显示「Save Config」（primary 样式），点击保存配置并保持打开（按钮变为「Close」）；干净时显示「Close」，直接关闭窗口。
 - **`config_dirty` 脏标记**：所有编辑 callback 调用 `mark_dirty()` 设置标志；保存操作清除标志。保存时若干净则关闭，若脏则保存后保持打开。
 - **`key_handler`** 位于右侧容器根级（不依赖 `if` 条件块），确保键盘快捷键始终生效。
+- **错误处理**：`main()` 使用 `Result<(), Box<dyn Error>>` 返回值，主流程 `unwrap()` 已替换为 `?`。所有 `Mutex::lock()` 通过 `unwrap_or_else(|e| e.into_inner())` 处理 poison。
+- **多显示器支持**：`restore_window_position()` 遍历所有 `available_monitors()` 检查窗口中心点，仅当所有显示器都不包含时才重置到主屏居中。

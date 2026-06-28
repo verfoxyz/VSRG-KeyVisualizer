@@ -2,143 +2,37 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod configs;
-mod state;
+mod core;
+mod events;
 mod gui {
     pub mod param_panel_window;
     pub mod settings_window;
 }
-mod events;
 mod physics;
+mod platform;
 mod ri_table;
+mod ui;
+
 // ====================模块定义====================
 use crossbeam_channel as channel;
 use i_slint_backend_winit::WinitWindowAccessor;
-use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use serde::{Deserialize, Serialize};
-use slint::{ComponentHandle, Model, ModelRc, VecModel};
-//use std::collections::HashMap;
-use std::ffi::c_void;
-use std::rc::Rc;
+use slint::ComponentHandle;
 use std::thread;
 use tracing;
 //use tracing_subscriber::fmt; // 或者 use tracing_subscriber;
+use crate::core::config_def::{AppConfig, MyKeyEvent};
+use crate::platform::window::{calculate_window_size, make_window_clickthrough, restore_window_position, MAIN_HWND};
 use crate::ri_table::win_vkey_to_rdev_str;
-use state::AppState;
+use ui::state::AppState;
 
 
 slint::include_modules!();
 
-fn default_top_boundary() -> i32 {
-    0
-}
-#[derive(Clone, Debug)]
-struct BarNote {
-    rdev_key_name: String,
-    x: i32,
-    width: i32,
-    y: i32,
-    height: i32,
-    color: String,
-    is_growing: bool,
-    vel_x: i32,   // 瀑布流方向 X 速度
-    vel_y: i32,   // 瀑布流方向 Y 速度
-}
-
-#[derive(Debug, Clone)]
-enum MyKeyEvent {
-    Press { rdev_name: String },
-    Release { rdev_name: String },
-}
-
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct KeyConfig {
-    rdev_key_name: String,
-    display_name: String,
-    x: i32,
-    y: i32,
-    width: i32,
-    height: i32,
-    color_pressed: String,
-    #[serde(default = "hundred")]
-    bar_width_percent: i32,
-}
-
-fn hundred() -> i32 { 100 }
-fn default_border_width() -> i32 {
-    1
-}
-fn default_border_color() -> String {
-    "#555555".into()
-}
-fn default_margin_width() -> i32 {
-    10
-}
-fn default_key_color() -> String {
-    "#333333".into()
-}
-fn default_flow_direction() -> i32 {
-    0
-}
-fn default_flow_speed() -> i32 {
-    4
-}
-#[derive(Serialize, Deserialize, Clone, Debug)]
-struct AppConfig {
-    #[serde(default = "default_top_boundary")]
-    top_boundary: i32,
-
-    #[serde(default = "default_border_width")]
-    global_border_width: i32,
-    #[serde(default = "default_border_color")]
-    global_border_color: String,
-    #[serde(default = "default_margin_width")]
-    key_margin_width: i32,
-    #[serde(default = "default_key_color")]
-    global_key_color: String,
-    #[serde(default = "default_flow_direction")]
-    flow_direction: i32,
-
-    #[serde(default = "default_flow_speed")]
-    flow_speed: i32,
-
-    #[serde(default)]
-    front_line_emit: bool,
-
-    #[serde(default)]
-    window_x: Option<i32>,
-    #[serde(default)]
-    window_y: Option<i32>,
-
-    keys: Vec<KeyConfig>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            top_boundary: default_top_boundary(),
-            global_border_width: default_border_width(),
-            global_border_color: default_border_color(),
-            key_margin_width: default_margin_width(),
-            global_key_color: default_key_color(),
-            flow_direction: default_flow_direction(),
-            flow_speed: default_flow_speed(),
-            front_line_emit: false,
-            window_x: None,
-            window_y: None,
-            keys: vec![KeyConfig {
-                rdev_key_name: "KeyA".into(),
-                display_name: "A".into(),
-                x: 10,
-                y: 10, // 物理 Y：按键顶部距窗口底部 10px
-                width: 80,
-                height: 80,
-                color_pressed: "#4A90E2FF".into(),
-                bar_width_percent: 100,
-            }],
-        }
-    }
-}
+// 公开 re-export 供其他模块使用
+pub use core::color::{hex_str_to_color, merge_alpha, split_alpha};
+pub use core::config_def::{BarNote, KeyConfig, MyKeyEvent as MyKeyEventAlias};
+pub use platform::window::SafeHWND;
+pub use ui::model::{compute_key_ratios, create_model, create_model_with_selection, KeyIndexMap, ToKeyData};
 
 /// 加载配置（新系统：从 configs/profiles/ 读取）
 ///
@@ -156,319 +50,32 @@ pub fn save_config_to_profile(name: &str, config: &AppConfig) {
     configs::save_profile(name, config);
 }
 
-
-
-/// 默认按键颜色（当配置文件中颜色解析失败时使用）
-const DEFAULT_KEY_COLOR: u32 = 0x4A90E2;
-
-/// 辅助：将单个 hex 字符重复两次组成一个字节（如 'A' → 0xAA）
-fn hex_dup(c: u8) -> u8 {
-    let v = (c as char).to_digit(16).unwrap_or(0) as u8;
-    v * 16 + v
-}
-
-/// 将十六进制颜色字符串解析为 slint::Color
-/// 支持 #RGB、#RRGGBB、#RRGGBBAA 三种格式
-pub fn hex_str_to_color(hex_str: &str) -> slint::Color {
-    let clean: String = hex_str.trim_start_matches('#')
-        .chars().filter(|c| c.is_ascii_hexdigit()).collect();
-
-    let (r, g, b, a) = match clean.len() {
-        // #RGB -> #RRGGBB（每位重复）
-        3 => {
-            let b = clean.as_bytes();
-            (hex_dup(b[0]), hex_dup(b[1]), hex_dup(b[2]), 255)
-        }
-        // #RRGGBB
-        6 => (
-            u8::from_str_radix(&clean[0..2], 16).unwrap_or(0),
-            u8::from_str_radix(&clean[2..4], 16).unwrap_or(0),
-            u8::from_str_radix(&clean[4..6], 16).unwrap_or(0),
-            255
-        ),
-        // #RRGGBBAA（取前 8 位）
-        8.. => (
-            u8::from_str_radix(&clean[0..2], 16).unwrap_or(0),
-            u8::from_str_radix(&clean[2..4], 16).unwrap_or(0),
-            u8::from_str_radix(&clean[4..6], 16).unwrap_or(0),
-            u8::from_str_radix(&clean[6..8], 16).unwrap_or(255)
-        ),
-        // 输入无效或为空 → 返回默认颜色（不透明）
-        _ => (
-            ((DEFAULT_KEY_COLOR >> 16) & 0xFF) as u8,
-            ((DEFAULT_KEY_COLOR >> 8) & 0xFF) as u8,
-            (DEFAULT_KEY_COLOR & 0xFF) as u8,
-            255
-        ),
-    };
-
-    slint::Color::from_argb_encoded(
-        ((a as u32) << 24) | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
-    )
-}
-
-/// 将 #RRGGBB 和透明度百分比(0-100)合并为 #RRGGBBAA
-pub fn merge_alpha(hex_rgb: &str, opacity_pct: i32) -> String {
-    let clean: String = hex_rgb.trim_start_matches('#')
-        .chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    // 取前 6 位 hex，不足右补 '0'
-    let hex6 = if clean.len() >= 6 {
-        clean[..6].to_string()
-    } else {
-        format!("{:0<6}", clean)
-    };
-    let a = ((opacity_pct.max(1).min(100) * 255) / 100).max(1).min(255);
-    format!("#{}{:02X}", hex6, a)
-}
-
-/// 从 #RRGGBBAA 中提取 #RRGGBB 和透明度百分比(0-100)
-pub fn split_alpha(hex_with_alpha: &str) -> (String, i32) {
-    let clean: String = hex_with_alpha.trim_start_matches('#')
-        .chars().filter(|c| c.is_ascii_hexdigit()).collect();
-    let len = clean.len();
-    if len >= 8 {
-        // 完整 #RRGGBBAA
-        let rgb = format!("#{}", &clean[..6]);
-        let a = u8::from_str_radix(&clean[6..8], 16).unwrap_or(255);
-        let pct = ((a as i32) * 100 / 255).clamp(0, 100);
-        (rgb, pct)
-    } else if len >= 6 {
-        // 只有 #RRGGBB，无透明度
-        (format!("#{}", &clean[..6]), 100)
-    } else {
-        ("#333333".into(), 100)
-    }
-}
-
-/// 统一转换 trait：将不同类型转换为 KeyData
-trait ToKeyData {
-    fn to_key_data(&self) -> KeyData;
-}
-
-impl ToKeyData for BarNote {
-    fn to_key_data(&self) -> KeyData {
-        KeyData {
-            name: self.rdev_key_name.clone().into(),
-            display_name: "".into(),
-            is_pressed: false,
-            x: self.x as f32,
-            y: self.y as f32,
-            w: self.width as f32,
-            h: self.height as f32,
-            anchor_ratio_x: 0.0,
-            anchor_ratio_y: 0.0,
-            pressed_color: hex_str_to_color(&self.color),
-            color_hex: self.color.clone().into(),
-            selected: false,
-        }
-    }
-}
-
-impl ToKeyData for KeyConfig {
-    fn to_key_data(&self) -> KeyData {
-        KeyData {
-            name: self.rdev_key_name.clone().into(),
-            display_name: self.display_name.clone().into(),
-            is_pressed: false,
-            x: self.x as f32,
-            y: self.y as f32,
-            w: self.width as f32,
-            h: self.height as f32,
-            anchor_ratio_x: 0.0,
-            anchor_ratio_y: 0.0,
-            pressed_color: hex_str_to_color(&self.color_pressed),
-            color_hex: self.color_pressed.clone().into(),
-            selected: false,
-        }
-    }
-}
-
-/// 按键专用：为 KeyData 模型计算比例锚点（相对于画布宽高）
-pub fn compute_key_ratios(model: &ModelRc<KeyData>, canvas_w: f32, canvas_h: f32) {
-    let cw = canvas_w.max(1.0);
-    let ch = canvas_h.max(1.0);
-    for i in 0..model.row_count() {
-        let mut d = model.row_data(i).unwrap();
-        d.anchor_ratio_x = d.x / cw;
-        d.anchor_ratio_y = d.y / ch;
-        model.set_row_data(i, d);
-    }
-}
-
-/// 通用渲染函数：将任意实现了 `ToKeyData` 的切片转换为 `ModelRc<KeyData>`
-pub fn create_model<T: ToKeyData>(items: &[T]) -> ModelRc<KeyData> {
-    let data: Vec<KeyData> = items.iter().map(|i| i.to_key_data()).collect();
-    Rc::new(VecModel::from(data)).into()
-}
-
-/// 带多选高亮的渲染函数：根据 selected_indices 设置每个 KeyData 的 selected 字段
-fn create_model_with_selection<T: ToKeyData>(items: &[T], selected: &std::collections::HashSet<usize>) -> ModelRc<KeyData> {
-    let data: Vec<KeyData> = items.iter().enumerate().map(|(i, item)| {
-        let mut kd = item.to_key_data();
-        kd.selected = selected.contains(&i);
-        kd
-    }).collect();
-    Rc::new(VecModel::from(data)).into()
-}
-
-/// 线程安全的 HWND 包装（HWND 本身是 `*mut c_void`，不自动实现 Send）
-#[derive(Clone, Copy)]
-pub struct SafeHWND(windows::Win32::Foundation::HWND);
-unsafe impl Send for SafeHWND {}
-unsafe impl Sync for SafeHWND {}
-
-/// 存储主窗口 HWND，供拖动回调使用
-static MAIN_HWND: std::sync::Mutex<Option<SafeHWND>> = std::sync::Mutex::new(None);
-
-#[cfg(windows)]
-fn make_window_clickthrough(window: &winit::window::Window) {
-    use windows::Win32::Foundation::{COLORREF, HWND};
-    use windows::Win32::UI::WindowsAndMessaging::{
-        GWL_EXSTYLE, GetWindowLongW, HWND_TOPMOST, LWA_COLORKEY, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-        SWP_NOMOVE, SWP_NOSIZE, SetLayeredWindowAttributes, SetWindowLongW, SetWindowPos,
-        WS_EX_LAYERED,
-    };
-
-    let hwnd = match window.window_handle().unwrap().as_raw() {
-        RawWindowHandle::Win32(handle) => HWND(handle.hwnd.get() as *mut c_void),
-        _ => return,
-    };
-
-    unsafe {
-        let ex_style = GetWindowLongW(hwnd, GWL_EXSTYLE);
-
-        // 1. 添加分层样式（LWA_COLORKEY 需要 WS_EX_LAYERED）
-        SetWindowLongW(hwnd, GWL_EXSTYLE, ex_style | WS_EX_LAYERED.0 as i32);
-
-        // 2. 激活颜色键穿透（黑色像素 → 透明 → 点击穿透到下层窗口）
-        if SetLayeredWindowAttributes(hwnd, COLORREF(0), 0, LWA_COLORKEY).is_err() {
-            tracing::error!("SetLayeredWindowAttributes 失败");
-        }
-
-        // 3. ⚠️ 关键：SetWindowPos 刷新窗口非客户区，使 WS_EX_LAYERED 生效
-        let _ = SetWindowPos(
-            hwnd,
-            Some(HWND_TOPMOST),
-            0,
-            0,
-            0,
-            0,
-            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED,
-        );
-    }
-
-    tracing::debug!("[clickthrough] 主窗口 HWND 已存储");
-    *MAIN_HWND.lock().unwrap() = Some(SafeHWND(hwnd));
-}
-
-pub fn calculate_window_size(config: &AppConfig) -> (i32, i32) {
-    let (width, height) = if config.keys.is_empty() {
-        (1200, 500)
-    } else {
-        let max_right = config.keys.iter().map(|k| k.x + k.width).max().unwrap_or(0);
-        let max_bottom = config.keys.iter().map(|k| k.y + k.height).max().unwrap_or(0);
-
-        // 基础尺寸：按键布局占用的最小矩形
-        let base_w = max_right + config.key_margin_width;
-        let base_h = max_bottom + config.key_margin_width;
-
-        match config.flow_direction {
-            // ↓ 向下：高度增加 top_boundary 用于音符向下流动
-            0 => (base_w, base_h + config.top_boundary),
-            // ↑ 向上：高度增加 top_boundary 用于音符向上流动
-            1 => (base_w, base_h + config.top_boundary),
-            // ← 向左：宽度增加 top_boundary 用于音符向左流动
-            2 => (base_w + config.top_boundary, base_h),
-            // → 向右：宽度增加 top_boundary 用于音符向右流动
-            3 => (base_w + config.top_boundary, base_h),
-            _ => (base_w, base_h + config.top_boundary),
-        }
-    };
-
-    (width, height)
-}
-
-/// 检查窗口中心点是否在主显示器的可见范围内
-/// 如果中心点超出屏幕范围，返回 true（需要重置位置）
-fn is_window_center_outside(
-    win_x: i32,
-    win_y: i32,
-    win_w: u32,
-    win_h: u32,
-    screen_w: u32,
-    screen_h: u32,
-) -> bool {
-    let cx = win_x + (win_w / 2) as i32;
-    let cy = win_y + (win_h / 2) as i32;
-    cx < 0 || cy < 0 || cx as u32 > screen_w || cy as u32 > screen_h
-}
-
-/// 计算窗口尺寸（由 calculate_window_size 复用）
-fn get_window_size(cfg: &AppConfig) -> (u32, u32) {
-    let (w, h) = calculate_window_size(cfg);
-    (w as u32, h as u32)
-}
-
-/// 从 AppConfig 恢复窗口位置
-/// 规则：计算窗口中心点，如果中心点超出主显示器范围则重置居中
-fn restore_window_position(winit_window: &winit::window::Window, cfg: &AppConfig) {
-    let (saved_x, saved_y) = match (cfg.window_x, cfg.window_y) {
-        (Some(x), Some(y)) => (x, y),
-        _ => { // 无保存记录，居中显示
-            if let Some(monitor) = winit_window.primary_monitor() {
-                let size = monitor.size();
-                let win_size = calculate_window_size(cfg);
-                let cx = (size.width.saturating_sub(win_size.0 as u32) / 2) as i32;
-                let cy = (size.height.saturating_sub(win_size.1 as u32) / 2) as i32;
-                winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(cx, cy));
-            }
-            return;
-        }
-    };
-
-    // 用 calculate_window_size 算出窗口尺寸
-    let (win_w, win_h) = get_window_size(cfg);
-
-    // 检查窗口中心点是否超出屏幕
-    if let Some(monitor) = winit_window.primary_monitor() {
-        let size = monitor.size();
-        if is_window_center_outside(saved_x, saved_y, win_w, win_h, size.width, size.height) {
-            // 中心点超出屏幕，重置居中
-            let cx = (size.width.saturating_sub(win_w) / 2) as i32;
-            let cy = (size.height.saturating_sub(win_h) / 2) as i32;
-            winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(cx, cy));
-        } else {
-            winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(saved_x, saved_y));
-        }
-    } else {
-        // 没有显示器信息，保守恢复
-        if saved_x >= 0 && saved_y >= 0 {
-            winit_window.set_outer_position(winit::dpi::PhysicalPosition::new(saved_x, saved_y));
-        }
-    }
-}
-
 /// 创建设置窗口并绑定回调
 fn create_settings_window(
     state: &AppState,
     main_ui_weak: &slint::Weak<MainWindow>,
 ) -> Option<SettingsWindow> {
     // 检查是否已有设置窗口打开，防止重复创建
-    if let Some(holder) = state.settings_holder.lock().unwrap().as_ref() {
+    if let Some(holder) = state.settings_holder.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
         if let Some(existing) = holder.upgrade() {
-            existing.show().unwrap();
+            if let Err(e) = existing.show() {
+                tracing::error!("重复激活设置窗口失败: {}", e);
+            }
             return None;
         }
     }
     let settings = SettingsWindow::new().ok()?;
-    settings.show().unwrap();
+    if let Err(e) = settings.show() {
+        tracing::error!("显示设置窗口失败: {}", e);
+        return None;
+    }
     gui::settings_window::setup_settings_window(settings, state.clone(), main_ui_weak.clone());
     None
 }
 
 /// ========================================主函数========================================
 /// ======================================== MAIN ========================================
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_level = if cfg!(debug_assertions) {
         tracing::Level::DEBUG
     } else {
@@ -486,31 +93,19 @@ fn main() {
 
     // 初始化按键位置缓存
     {
-        let cfg = state.config.lock().unwrap();
-        let mut cache = state.key_positions.lock().unwrap();
+        let cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
+        let mut cache = state.key_positions.lock().unwrap_or_else(|e| e.into_inner());
         cache.clear();
         for k in &cfg.keys {
             cache.push((k.rdev_key_name.clone(), k.x, k.y));
         }
     }
 
-    let ui = match MainWindow::new() {
-        Ok(window) => window,
-        Err(e) => {
-            eprintln!("无法创建主窗口: {}", e);
-            std::process::exit(1);
-        }
-    };
+    let ui = MainWindow::new()?;
 
     // 1. 初始化 UI 全局表现属性
     {
-        let cfg = match state.config.lock() {
-            Ok(guard) => guard,
-            Err(e) => {
-                eprintln!("致命错误：获取配置锁失败: {}", e);
-                std::process::exit(1); 
-            }
-        };
+        let cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
         let (width, height) = calculate_window_size(&cfg);
         //转换单位
         ui.set_window_width_px(width);
@@ -570,7 +165,7 @@ fn main() {
         use windows::Win32::Foundation::{LPARAM, WPARAM};
         use windows::Win32::UI::Input::KeyboardAndMouse::ReleaseCapture;
         use windows::Win32::UI::WindowsAndMessaging::{HTCAPTION, SendMessageW, WM_NCLBUTTONDOWN};
-        let guard = MAIN_HWND.lock().unwrap();
+        let guard = MAIN_HWND.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(safe) = *guard {
             let hwnd = safe.0;
             unsafe {
@@ -596,24 +191,27 @@ fn main() {
     ui.on_request_close(move || {
         if let Some(ui) = ui_weak_close.upgrade() {
             let pos = ui.window().position();
-            let mut cfg = state_for_close.config.lock().unwrap();
+            let mut cfg = state_for_close.config.lock().unwrap_or_else(|e| e.into_inner());
             cfg.window_x = Some(pos.x);
             cfg.window_y = Some(pos.y);
-            let profile = state_for_close.current_profile.lock().unwrap().clone();
+            let profile = state_for_close.current_profile.lock().unwrap_or_else(|e| e.into_inner()).clone();
             save_config_to_profile(&profile, &cfg);
         }
-        slint::quit_event_loop().unwrap();
+        if let Err(e) = slint::quit_event_loop() {
+            tracing::error!("退出事件循环失败: {}", e);
+        }
     });
 
     // 4. 开启后台高性能 Timer 渲染时钟驱动
     let _event_timer = events::start_event_timer(rx, state.clone(), ui.as_weak());
 
     // 5. 显示窗口
-    ui.show().unwrap();
+    ui.show()?;
 
     // 6. ⚠️ 必须使用 spawn_local + async 在事件循环内部获取 winit 窗口
     //    同步的 with_winit_window 在 show() 后可能因窗口未就绪而静默跳过
     {
+        let state_for_winit = state.clone();
         let ui_weak = ui.as_weak();
         slint::spawn_local(async move {
             let ui = match ui_weak.upgrade() {
@@ -630,7 +228,8 @@ fn main() {
                     make_window_clickthrough(&winit_window);
 
                     // 恢复窗口位置（含多屏边界检测）
-                    restore_window_position(&winit_window, &state.config.lock().unwrap());
+                    let cfg = state_for_winit.config.lock().unwrap_or_else(|e| e.into_inner());
+                    restore_window_position(&winit_window, &cfg);
 
                     tracing::debug!("[setup] 窗口穿透属性已激活");
                 }
@@ -638,29 +237,14 @@ fn main() {
                     tracing::error!("[setup] 获取 winit 窗口失败: {:?}", e);
                 }
             }
-        })
-        .unwrap();
+        })?;
     }
 
     init_platform_input_listener(tx, &ui);
 
     tracing::debug!("[DEBUG] ---> 启动 Slint 全局事件循环...");
-    slint::run_event_loop().unwrap();
-}
-
-fn update_key_visual_state(ui_weak: &slint::Weak<MainWindow>, key_name: String, is_pressed: bool) {
-    if let Some(ui) = ui_weak.upgrade() {
-        let model = ui.get_keys();
-        for idx in 0..model.row_count() {
-            if let Some(mut data) = model.row_data(idx) {
-                if data.name == key_name {
-                    data.is_pressed = is_pressed;
-                    model.set_row_data(idx, data);
-                    break;
-                }
-            }
-        }
-    }
+    slint::run_event_loop()?;
+    Ok(())
 }
 
 #[cfg(unix)]

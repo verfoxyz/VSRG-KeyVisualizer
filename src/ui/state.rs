@@ -1,11 +1,9 @@
 // src/state.rs
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex, atomic::AtomicBool};
-use crate::{
-    AppConfig, BarNote, ParamPanelWindow, SettingsWindow, KeyCaptureDialog,
-    create_model_with_selection,
-};
-use slint::ComponentHandle;
+use crate::core::config_def::{AppConfig, BarNote};
+use crate::ui::model::create_model_with_selection;
+use crate::{ParamPanelWindow, SettingsWindow, KeyCaptureDialog};
 use crate::physics::MovementPipeline;
 
 /// 🌟 UI 意图枚举 —— 整个配置窗口所有用户操作的统一描述

@@ -1,7 +1,7 @@
 // src/configs.rs
 // 多配置管理系统：profiles 目录 + .active 文件
 
-use crate::AppConfig;
+use crate::core::config_def::AppConfig;
 use std::fs;
 use std::path::{Path, PathBuf};
 

@@ -1,12 +1,16 @@
 // src/windows/settings_window.rs
-use crate::calculate_window_size;
+use crate::core::color::{hex_str_to_color, merge_alpha, split_alpha};
+use crate::core::config_def::AppConfig;
 use crate::configs;
 use crate::gui::param_panel_window::setup_param_panel_window;
-use crate::state::{AppState, UIAction};
-use crate::{AppConfig, KeyCaptureDialog, ParamPanelWindow, SettingsWindow, hex_str_to_color, merge_alpha, split_alpha, create_model, compute_key_ratios, save_config_to_profile};
+use crate::ui::model::{create_model, compute_key_ratios};
+use crate::ui::state::{AppState, UIAction};
+use crate::platform::window::calculate_window_size;
+use crate::{KeyCaptureDialog, ParamPanelWindow, SettingsWindow, save_config_to_profile};
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::{ComponentHandle, Model, ModelRc, VecModel, SharedString};
 use std::rc::Rc;
+use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
 
 /// 缓存主显示器尺寸（宽、高），首次通过 winit 异步获取后写入
@@ -488,23 +492,25 @@ pub fn setup_settings_window(
         if let Some(s) = s_weak.upgrade() {
             // 未修改：直接关闭
             if !s.get_config_dirty() {
-                s.hide().unwrap();
+                if let Err(e) = s.hide() {
+                    tracing::error!("隐藏设置窗口失败: {}", e);
+                }
                 return;
             }
 
-            let mut real = state_save.config.lock().unwrap();
-            let tmp = state_save.temp_config.lock().unwrap();
+            let mut real = state_save.config.lock().unwrap_or_else(|e| e.into_inner());
+            let tmp = state_save.temp_config.lock().unwrap_or_else(|e| e.into_inner());
             
             // temp_config 现在可能包含新配置的窗口位置（切换配置后），直接使用
             *real = tmp.clone();
 
             // 保存到当前激活的 profile
-            let profile = state_save.current_profile.lock().unwrap().clone();
+            let profile = state_save.current_profile.lock().unwrap_or_else(|e| e.into_inner()).clone();
             save_config_to_profile(&profile, &real);
 
             // 重建按键位置缓存
             {
-                let mut cache = state_save.key_positions.lock().unwrap();
+                let mut cache = state_save.key_positions.lock().unwrap_or_else(|e| e.into_inner());
                 cache.clear();
                 for k in &real.keys {
                     cache.push((k.rdev_key_name.clone(), k.x, k.y));

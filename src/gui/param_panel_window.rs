@@ -1,6 +1,7 @@
 // src/gui/param_panel_window.rs
-use crate::state::{AppState, UIAction};
-use crate::{ParamPanelWindow, SettingsWindow, split_alpha};
+use crate::core::color::split_alpha;
+use crate::ui::state::{AppState, UIAction};
+use crate::{ParamPanelWindow, SettingsWindow};
 use slint::ComponentHandle;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing;

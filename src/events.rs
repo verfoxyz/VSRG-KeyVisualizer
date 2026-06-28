@@ -1,10 +1,13 @@
 // src/events.rs
 use crossbeam_channel::Receiver;
 use slint::ComponentHandle;
-use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use crate::state::AppState;
-use crate::{MyKeyEvent, BarNote, KeyConfig, create_model, update_key_visual_state};
+use crate::core::config_def::{BarNote, KeyConfig, MyKeyEvent};
+use crate::ui::model::{create_model, update_key_visual_state, build_key_index_map, KeyIndexMap};
+use crate::ui::state::AppState;
+
+/// 按键索引映射缓存，在事件定时器初始化时构建
+static KEY_INDEX_MAP: std::sync::OnceLock<KeyIndexMap> = std::sync::OnceLock::new();
 
 /// 核心录制管线处理器
 struct MacroRecorder;
@@ -49,7 +52,7 @@ impl MacroRecorder {
 /// 运行模式下实时渲染管线处理器
 struct LiveVisualizer;
 impl LiveVisualizer {
-    fn process(event: (&str, bool), state: &AppState, notes: &mut Vec<BarNote>, ui: &crate::MainWindow) {
+    fn process(event: (&str, bool), state: &AppState, notes: &mut Vec<BarNote>, ui: &crate::MainWindow, index_map: &KeyIndexMap) {
         let (rdev_name, is_press) = event;
         let cfg = state.config.lock().unwrap();
         if is_press {
@@ -102,13 +105,13 @@ impl LiveVisualizer {
                     vel_x: vx,
                     vel_y: vy,
                 });
-                update_key_visual_state(&ui.as_weak(), rdev_name.to_string(), true);
+                update_key_visual_state(&ui.as_weak(), rdev_name, true, index_map);
             }
         } else {
             for note in notes.iter_mut().filter(|n| n.rdev_key_name == rdev_name && n.is_growing) {
                 note.is_growing = false;
             }
-            update_key_visual_state(&ui.as_weak(), rdev_name.to_string(), false);
+            update_key_visual_state(&ui.as_weak(), rdev_name, false, index_map);
         }
     }
 
@@ -135,6 +138,12 @@ pub fn start_event_timer(
     state: AppState,
     ui_weak: slint::Weak<crate::MainWindow>,
 ) -> slint::Timer {
+    // 首次运行时初始化按键索引映射缓存（OnceLock → 只初始化一次）
+    let _ = KEY_INDEX_MAP.get_or_init(|| {
+        let cfg = state.config.lock().unwrap_or_else(|e| e.into_inner());
+        build_key_index_map(&cfg.keys)
+    });
+
     let event_timer = slint::Timer::default();
     event_timer.start(
         slint::TimerMode::Repeated,
@@ -153,7 +162,7 @@ pub fn start_event_timer(
                 if state.capture_mode.load(Ordering::Relaxed) {
                     MacroRecorder::process((&name, is_press), &state);
                 } else if let Some(ui) = ui_weak.upgrade() {
-                    LiveVisualizer::process((&name, is_press), &state, &mut notes, &ui);
+                    LiveVisualizer::process((&name, is_press), &state, &mut notes, &ui, KEY_INDEX_MAP.get().unwrap());
                     local_dirty = true;
                 }
             }
@@ -193,19 +202,15 @@ pub fn start_event_timer(
                 }
                 if notes.len() != old_len { local_dirty = true; }
 
-                // 用预构建的 HashMap O(1) 查找按键位置
-                let pos_cache = state.key_positions.lock().unwrap();
-                let pos_map: HashMap<String, (i32, i32)> = pos_cache.iter()
-                    .map(|(k, x, y)| (k.clone(), (*x, *y)))
-                    .collect();
-                drop(pos_cache);
-
+                // 从 key_positions 缓存获取位置映射，避免每帧重建 HashMap
+                let pos_cache = state.key_positions.lock().unwrap_or_else(|e| e.into_inner());
+                // pos_cache 是 Vec<(String, i32, i32)>，直接二元查找效率尚可
                 let use_x = flow_dir == 2 || flow_dir == 3;
                 notes.sort_by(|a, b| {
-                    let pa = pos_map.get(a.rdev_key_name.as_str()).copied().unwrap_or((0, 0));
-                    let pb = pos_map.get(b.rdev_key_name.as_str()).copied().unwrap_or((0, 0));
-                    let va = if use_x { pa.0 } else { pa.1 };
-                    let vb = if use_x { pb.0 } else { pb.1 };
+                    let a_pos = pos_cache.iter().find(|(name, _, _)| name == &a.rdev_key_name);
+                    let b_pos = pos_cache.iter().find(|(name, _, _)| name == &b.rdev_key_name);
+                    let va = a_pos.map(|(_, x, y)| if use_x { *x } else { *y }).unwrap_or(0);
+                    let vb = b_pos.map(|(_, x, y)| if use_x { *x } else { *y }).unwrap_or(0);
                     match flow_dir {
                         0 => vb.cmp(&va),
                         1 => va.cmp(&vb),
@@ -214,6 +219,7 @@ pub fn start_event_timer(
                         _ => va.cmp(&vb),
                     }
                 });
+                drop(pos_cache);
 
                 // 有音符就每帧更新模型（音符位置/尺寸持续变化），
                 // 无音符时跳过重建以节省开销

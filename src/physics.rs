@@ -1,5 +1,5 @@
 // src/physics.rs
-use crate::KeyConfig;
+use crate::core::config_def::KeyConfig;
 use std::collections::HashMap;
 
 const SNAP_THRESHOLD: i32 = 6;    // 吸附触发阈值
