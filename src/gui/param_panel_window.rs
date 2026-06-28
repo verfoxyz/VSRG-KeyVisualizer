@@ -6,6 +6,103 @@ use slint::ComponentHandle;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tracing;
 
+/// 属性快照缓存 — 用于按需同步（diff），避免 30ms 定时器造成冗余 Slint 属性更新
+#[derive(Clone, Debug, PartialEq)]
+struct PanelPropertySnapshot {
+    selected_index: i32,
+    current_x: i32,
+    current_y: i32,
+    current_w: i32,
+    current_h: i32,
+    current_color: slint::SharedString,
+    current_opacity_percent: i32,
+    current_bar_width_percent: i32,
+    global_key_color_hex: slint::SharedString,
+    global_key_opacity_percent: i32,
+    global_border_color_hex: slint::SharedString,
+    front_line_emit: bool,
+    flow_direction: i32,
+    flow_speed: i32,
+    global_top_boundary: i32,
+    key_margin_width: i32,
+}
+
+impl PanelPropertySnapshot {
+    /// 从 SettingsWindow 快照当前属性
+    fn from_settings(s: &SettingsWindow) -> Self {
+        Self {
+            selected_index: s.get_selected_index(),
+            current_x: s.get_current_x(),
+            current_y: s.get_current_y(),
+            current_w: s.get_current_w(),
+            current_h: s.get_current_h(),
+            current_color: s.get_current_color(),
+            current_opacity_percent: s.get_current_opacity_percent(),
+            current_bar_width_percent: s.get_current_bar_width_percent(),
+            global_key_color_hex: s.get_global_key_color_hex(),
+            global_key_opacity_percent: s.get_global_key_opacity_percent(),
+            global_border_color_hex: s.get_global_border_color_hex(),
+            front_line_emit: s.get_front_line_emit(),
+            flow_direction: s.get_flow_direction(),
+            flow_speed: s.get_flow_speed(),
+            global_top_boundary: s.get_global_top_boundary(),
+            key_margin_width: s.get_key_margin_width(),
+        }
+    }
+
+    /// 将变更的属性同步到 ParamPanelWindow（只 set 变化的字段）
+    fn apply_diff(&self, panel: &ParamPanelWindow, old: &Self) {
+        if self.selected_index != old.selected_index {
+            panel.set_selected_index(self.selected_index);
+        }
+        if self.current_x != old.current_x {
+            panel.set_current_x(self.current_x);
+        }
+        if self.current_y != old.current_y {
+            panel.set_current_y(self.current_y);
+        }
+        if self.current_w != old.current_w {
+            panel.set_current_w(self.current_w);
+        }
+        if self.current_h != old.current_h {
+            panel.set_current_h(self.current_h);
+        }
+        if self.current_color != old.current_color {
+            panel.set_current_color(self.current_color.clone());
+        }
+        if self.current_opacity_percent != old.current_opacity_percent {
+            panel.set_current_opacity_percent(self.current_opacity_percent);
+        }
+        if self.current_bar_width_percent != old.current_bar_width_percent {
+            panel.set_current_bar_width_percent(self.current_bar_width_percent);
+        }
+        if self.global_key_color_hex != old.global_key_color_hex {
+            panel.set_global_key_color_hex(self.global_key_color_hex.clone());
+        }
+        if self.global_key_opacity_percent != old.global_key_opacity_percent {
+            panel.set_global_key_opacity_percent(self.global_key_opacity_percent);
+        }
+        if self.global_border_color_hex != old.global_border_color_hex {
+            panel.set_global_border_color_hex(self.global_border_color_hex.clone());
+        }
+        if self.front_line_emit != old.front_line_emit {
+            panel.set_front_line_emit(self.front_line_emit);
+        }
+        if self.flow_direction != old.flow_direction {
+            panel.set_flow_direction(self.flow_direction);
+        }
+        if self.flow_speed != old.flow_speed {
+            panel.set_flow_speed(self.flow_speed);
+        }
+        if self.global_top_boundary != old.global_top_boundary {
+            panel.set_global_top_boundary(self.global_top_boundary);
+        }
+        if self.key_margin_width != old.key_margin_width {
+            panel.set_key_margin_width(self.key_margin_width);
+        }
+    }
+}
+
 /// 存储 ParamPanelWindow 的 HWND，用于窗口拖动
 #[cfg(windows)]
 static PARAM_PANEL_HWND: std::sync::Mutex<Option<crate::SafeHWND>> = std::sync::Mutex::new(None);
@@ -66,7 +163,6 @@ pub fn setup_param_panel_window(
     // ===== 1. 绑定窗口拖拽（纯状态机：drag_begin 固定 offset，drag_move 不重算） =====
     {
         let panel_weak = panel.as_weak();
-        let s_weak = settings_weak.clone();
 
         panel.on_drag_begin(move |_mx, _my| {
             let p = match panel_weak.upgrade() {
@@ -179,26 +275,22 @@ pub fn setup_param_panel_window(
                 use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, SetWindowPos, SWP_NOSIZE, SWP_NOACTIVATE, SWP_NOZORDER};
 
                 // 获取面板 HWND
-                if let Ok(handle) = p_win.window_handle() {
-                    if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+                if let Ok(handle) = p_win.window_handle()
+                    && let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
                         let hwnd = HWND(win32_handle.hwnd.get() as *mut std::ffi::c_void);
                         *PARAM_PANEL_HWND.lock().unwrap() = Some(crate::SafeHWND(hwnd));
                         tracing::debug!("[PARAM-PANEL] panel HWND stored for window drag");
                     }
-                }
 
                 // 获取设置窗口 HWND
-                if let Some(s) = s_weak.upgrade() {
-                    if let Ok(s_win) = s.window().winit_window().await {
-                        if let Ok(handle) = s_win.window_handle() {
-                            if let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
+                if let Some(s) = s_weak.upgrade()
+                    && let Ok(s_win) = s.window().winit_window().await
+                        && let Ok(handle) = s_win.window_handle()
+                            && let RawWindowHandle::Win32(win32_handle) = handle.as_raw() {
                                 let s_hwnd = HWND(win32_handle.hwnd.get() as *mut std::ffi::c_void);
                                 *SETTINGS_HWND.lock().unwrap() = Some(crate::SafeHWND(s_hwnd));
                                 tracing::debug!("[PARAM-PANEL] settings HWND stored");
                             }
-                        }
-                    }
-                }
 
                 // ⭐ 启动后台轮询线程：在 Win32 拖拽模态循环期间实时跟随
                 let Some(panel_safe) = *PARAM_PANEL_HWND.lock().unwrap() else { return; };
@@ -237,7 +329,7 @@ pub fn setup_param_panel_window(
                                 }
 
                                 let sw_w = s_rect.right - s_rect.left;
-                                let target_x = s_rect.left + sw_w + SNAP_GAP as i32;
+                                let target_x = s_rect.left + sw_w + SNAP_GAP;
                                 let target_y = s_rect.top;
                                 let panel_dx = p_rect.left - target_x;
 
@@ -281,29 +373,46 @@ pub fn setup_param_panel_window(
         tracing::debug!("[PARAM-PANEL] spawn_local queued");
     }
 
-    // ===== 3. 放置面板窗口到设置窗口右侧 =====
+    // ===== 3. 立即放置面板窗口到设置窗口右侧 =====
     {
-        let panel_weak = panel.as_weak();
-        let s_weak = settings_weak.clone();
-        slint::Timer::single_shot(std::time::Duration::from_millis(50), move || {
-            tracing::debug!("[PARAM-PANEL] initial position timer fired");
-            if let (Some(p), Some(s)) = (panel_weak.upgrade(), s_weak.upgrade()) {
-                let sw_pos = s.window().position();
-                let sw_size = s.window().size();
-                let target_x = sw_pos.x + sw_size.width as i32 + SNAP_GAP;
-                let target_y = sw_pos.y;
-                p.window().set_position(slint::PhysicalPosition::new(target_x, target_y));
-                tracing::debug!("[PARAM-PANEL] initial position set to ({}, {})", target_x, target_y);
-            } else {
-                tracing::warn!("[PARAM-PANEL] initial position: weak refs expired");
-            }
-        });
+        let sw_pos = panel.window().position();
+        let sw_size = panel.window().size();
+        let target_x = sw_pos.x + sw_size.width as i32 + SNAP_GAP;
+        let target_y = sw_pos.y;
+        panel.window().set_position(slint::PhysicalPosition::new(target_x, target_y));
+        tracing::debug!("[PARAM-PANEL] initial position set to ({}, {})", target_x, target_y);
     }
 
-    // ===== 4. 定期同步：属性同步 + 吸附跟随 =====
+    // ===== 4. 定期同步：按需属性同步(Diff) + 吸附跟随（合并为一个定时器） =====
     {
         let panel_weak = panel.as_weak();
         let s_weak = settings_weak.clone();
+        // 初始快照
+        let mut last_snapshot = {
+            if let Some(s) = s_weak.upgrade() {
+                PanelPropertySnapshot::from_settings(&s)
+            } else {
+                // 兜底：创建一个空快照，首次同步会全部推送
+                PanelPropertySnapshot {
+                    selected_index: -1,
+                    current_x: 0,
+                    current_y: 0,
+                    current_w: 0,
+                    current_h: 0,
+                    current_color: slint::SharedString::from(""),
+                    current_opacity_percent: 0,
+                    current_bar_width_percent: 0,
+                    global_key_color_hex: slint::SharedString::from(""),
+                    global_key_opacity_percent: 0,
+                    global_border_color_hex: slint::SharedString::from(""),
+                    front_line_emit: false,
+                    flow_direction: 0,
+                    flow_speed: 0,
+                    global_top_boundary: 0,
+                    key_margin_width: 0,
+                }
+            }
+        };
         let follow_timer = Box::new(slint::Timer::default());
         follow_timer.start(
             slint::TimerMode::Repeated,
@@ -319,25 +428,12 @@ pub fn setup_param_panel_window(
                     return;
                 }
 
-                // === 属性同步 ===
-                p.set_selected_index(s.get_selected_index());
-                p.set_current_x(s.get_current_x());
-                p.set_current_y(s.get_current_y());
-                p.set_current_w(s.get_current_w());
-                p.set_current_h(s.get_current_h());
-                p.set_current_color(s.get_current_color());
-                p.set_current_opacity_percent(s.get_current_opacity_percent());
-                p.set_current_bar_width_percent(s.get_current_bar_width_percent());
-                p.set_global_key_color_hex(s.get_global_key_color_hex());
-                p.set_global_key_opacity_percent(s.get_global_key_opacity_percent());
-                p.set_global_border_color_hex(s.get_global_border_color_hex());
-                p.set_front_line_emit(s.get_front_line_emit());
-                p.set_flow_direction(s.get_flow_direction());
-                p.set_flow_speed(s.get_flow_speed());
-                p.set_global_top_boundary(s.get_global_top_boundary());
-                p.set_key_margin_width(s.get_key_margin_width());
+                // === 属性同步（diff 按需更新） ===
+                let new_snapshot = PanelPropertySnapshot::from_settings(&s);
+                new_snapshot.apply_diff(&p, &last_snapshot);
+                last_snapshot = new_snapshot;
 
-                // === SNAPPED 状态管理 + OS 拖拽检测（不移动位置，由后台线程负责） ===
+                // === SNAPPED 状态管理 + OS 拖拽检测 ===
                 let sw_pos = s.window().position();
                 let sw_size = s.window().size();
                 let sw_right_edge = sw_pos.x + sw_size.width as i32;
@@ -350,40 +446,31 @@ pub fn setup_param_panel_window(
 
                 if snapped {
                     // ⭐ 检测用户是否通过 OS 标题栏拖动了面板
-                    // 判断依据：gap 很大（> SNAP_DISTANCE），但设置窗口 X 坐标几乎没变
-                    if gap > SNAP_DISTANCE {
-                        if let Some(prev_x) = prev_sw_x {
+                    if gap > SNAP_DISTANCE
+                        && let Some(prev_x) = prev_sw_x {
                             let settings_dx = (sw_pos.x - prev_x).abs();
                             if settings_dx < 5 {
-                                // 设置窗口没动但面板跑了 → 用户拖了面板 → 脱离吸附
                                 SNAPPED.store(false, Ordering::Relaxed);
                                 tracing::debug!(
                                     "[PARAM-PANEL] OS title-bar drag detected: gap={}, settings_dx={}, UNSNAPPED",
                                     gap, settings_dx
                                 );
-                                return;
                             }
                         }
-                    }
-                } else if gap >= 0 && gap <= SNAP_DISTANCE {
-                    // 游离状态但接近 → 检查光标距离后决定是否重新吸附
-                    // 如果吸附后光标在面板上的位置与光标实际位置差距过大则不吸附
+                } else if (0..=SNAP_DISTANCE).contains(&gap) {
                     let should_snap = {
                         let drag = DRAG_STATE.lock().unwrap();
                         if let Some(info) = drag.as_ref() {
                             let (cx, cy) = get_cursor_pos();
-                            // 吸附后光标会位于: snap_target + click_ofs
                             let expected_cx = sw_right_edge + SNAP_GAP + info.click_ofs_x;
                             let expected_cy = sw_pos.y + info.click_ofs_y;
                             let dist = (cx - expected_cx).abs().max((cy - expected_cy).abs());
                             dist <= SNAP_DISTANCE
                         } else {
-                            // 没有活跃拖拽 → 无条件吸附
                             true
                         }
                     };
                     if !should_snap {
-                        tracing::trace!("[PARAM-PANEL] skip re-snap: cursor too far from expected snap position");
                         return;
                     }
                     SNAPPED.store(true, Ordering::Relaxed);
@@ -391,8 +478,9 @@ pub fn setup_param_panel_window(
                 }
             },
         );
-        Box::leak(follow_timer);
-        tracing::debug!("[PARAM-PANEL] follow/sync timer started (30ms)");
+        // 将定时器所有权存入 state，代替 Box::leak
+        state.panel_timers.lock().unwrap().follow_timer = Some(*follow_timer);
+        tracing::debug!("[PARAM-PANEL] follow/sync timer started (30ms, diff-based sync)");
     }
 
     // ===== 5. 定期检测设置窗口是否关闭 =====
@@ -400,12 +488,13 @@ pub fn setup_param_panel_window(
         let panel_weak = panel.as_weak();
         let s_weak = settings_weak.clone();
         let holder_weak = state.param_panel_holder.clone();
+        // 需要持有 panel_timers 的引用来存储定时器
+        let timers = state.panel_timers.clone();
         let close_check_timer = Box::new(slint::Timer::default());
         close_check_timer.start(
             slint::TimerMode::Repeated,
             std::time::Duration::from_millis(100),
             move || {
-                // 如果面板已经不可见，静默跳过（避免隐藏后还持续输出日志）
                 let panel = match panel_weak.upgrade() {
                     Some(p) => p,
                     None => return,
@@ -417,26 +506,30 @@ pub fn setup_param_panel_window(
                 let s = match s_weak.upgrade() {
                     Some(s) => s,
                     None => {
-                        // 设置窗口已销毁 → 关闭面板并清理 holder
                         tracing::debug!("[PARAM-PANEL] close_check: settings destroyed, hiding panel");
                         panel.hide().unwrap();
                         *holder_weak.lock().unwrap() = None;
                         POLLING_ACTIVE.store(false, Ordering::Relaxed);
+                        // 清理定时器
+                        timers.lock().unwrap().follow_timer = None;
+                        timers.lock().unwrap().close_check_timer = None;
                         return;
                     }
                 };
-                // 如果设置窗口不可见了，也关闭面板
                 if !s.window().is_visible() {
                     tracing::debug!("[PARAM-PANEL] close_check: settings window not visible, hiding panel");
                     panel.hide().unwrap();
                     *holder_weak.lock().unwrap() = None;
                     POLLING_ACTIVE.store(false, Ordering::Relaxed);
-                    // 更新设置窗口的 panel_window_open 标记
                     s.set_panel_window_open(false);
+                    // 清理定时器
+                    timers.lock().unwrap().follow_timer = None;
+                    timers.lock().unwrap().close_check_timer = None;
                 }
             },
         );
-        Box::leak(close_check_timer);
+        // 将定时器所有权存入 state，代替 Box::leak
+        state.panel_timers.lock().unwrap().close_check_timer = Some(*close_check_timer);
         tracing::debug!("[PARAM-PANEL] close-check timer started (100ms)");
     }
 

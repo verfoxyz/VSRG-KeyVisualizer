@@ -18,7 +18,6 @@ use crossbeam_channel as channel;
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::ComponentHandle;
 use std::thread;
-use tracing;
 //use tracing_subscriber::fmt; // 或者 use tracing_subscriber;
 use crate::core::config_def::{AppConfig, MyKeyEvent};
 use crate::platform::window::{calculate_window_size, make_window_clickthrough, restore_window_position, MAIN_HWND};
@@ -56,14 +55,13 @@ fn create_settings_window(
     main_ui_weak: &slint::Weak<MainWindow>,
 ) -> Option<SettingsWindow> {
     // 检查是否已有设置窗口打开，防止重复创建
-    if let Some(holder) = state.settings_holder.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
-        if let Some(existing) = holder.upgrade() {
+    if let Some(holder) = state.settings_holder.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
+        && let Some(existing) = holder.upgrade() {
             if let Err(e) = existing.show() {
                 tracing::error!("重复激活设置窗口失败: {}", e);
             }
             return None;
         }
-    }
     let settings = SettingsWindow::new().ok()?;
     if let Err(e) = settings.show() {
         tracing::error!("显示设置窗口失败: {}", e);

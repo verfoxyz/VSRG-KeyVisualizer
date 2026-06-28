@@ -1,27 +1,18 @@
 // src/windows/settings_window.rs
 use crate::core::color::{hex_str_to_color, merge_alpha, split_alpha};
-use crate::core::config_def::AppConfig;
+use crate::core::config_manager::ConfigManager;
 use crate::configs;
 use crate::gui::param_panel_window::setup_param_panel_window;
-use crate::ui::model::{create_model, compute_key_ratios};
+use crate::ui::model::create_model;
 use crate::ui::state::{AppState, UIAction};
-use crate::platform::window::calculate_window_size;
 use crate::{KeyCaptureDialog, ParamPanelWindow, SettingsWindow, save_config_to_profile};
 use i_slint_backend_winit::WinitWindowAccessor;
 use slint::{ComponentHandle, Model, ModelRc, VecModel, SharedString};
 use std::rc::Rc;
-use std::sync::atomic::Ordering;
 use std::sync::OnceLock;
 
 /// 缓存主显示器尺寸（宽、高），首次通过 winit 异步获取后写入
-static PRIMARY_SCREEN_SIZE: OnceLock<(u32, u32)> = OnceLock::new();
-
-/// 检查窗口中心点是否超出主显示器范围
-fn is_center_outside(win_x: i32, win_y: i32, win_w: u32, win_h: u32, screen_w: u32, screen_h: u32) -> bool {
-    let cx = win_x + (win_w / 2) as i32;
-    let cy = win_y + (win_h / 2) as i32;
-    cx < 0 || cy < 0 || cx as u32 > screen_w || cy as u32 > screen_h
-}
+pub(super) static PRIMARY_SCREEN_SIZE: OnceLock<(u32, u32)> = OnceLock::new();
 
 pub fn setup_settings_window(
     settings: SettingsWindow,
@@ -35,14 +26,12 @@ pub fn setup_settings_window(
     if PRIMARY_SCREEN_SIZE.get().is_none() {
         let main_weak_clone = main_ui_weak.clone();
         slint::spawn_local(async move {
-            if let Some(main_ui) = main_weak_clone.upgrade() {
-                if let Ok(winit_window) = main_ui.window().winit_window().await {
-                    if let Some(monitor) = winit_window.primary_monitor() {
+            if let Some(main_ui) = main_weak_clone.upgrade()
+                && let Ok(winit_window) = main_ui.window().winit_window().await
+                    && let Some(monitor) = winit_window.primary_monitor() {
                         let size = monitor.size();
                         let _ = PRIMARY_SCREEN_SIZE.set((size.width, size.height));
                     }
-                }
-            }
         }).unwrap();
     }
 
@@ -107,7 +96,7 @@ pub fn setup_settings_window(
         }
         // 放弃当前 temp_config 的未保存修改，直接加载新配置到 temp_config
         configs::switch_profile(&name);
-        let new_config = configs::load_profile(&name).unwrap_or_else(AppConfig::default);
+        let new_config = configs::load_profile(&name).unwrap_or_default();
         // 只更新 temp_config（预览用）和 current_profile，不动 config（等保存才更新主窗口）
         *state_switch.temp_config.lock().unwrap() = new_config;
         *state_switch.current_profile.lock().unwrap() = name;
@@ -312,12 +301,11 @@ pub fn setup_settings_window(
     let s_weak = settings.as_weak();
     settings.on_add_new_key(move || {
         // 检查是否已有按键捕获对话框，防止重复创建
-        if let Some(holder) = state_add.dialog_holder.lock().unwrap().as_ref() {
-            if let Some(existing) = holder.upgrade() {
+        if let Some(holder) = state_add.dialog_holder.lock().unwrap().as_ref()
+            && let Some(existing) = holder.upgrade() {
                 existing.show().unwrap();
                 return;
             }
-        }
 
         state_add.capture_mode.store(true, std::sync::atomic::Ordering::SeqCst);
         if let Some(s) = s_weak.upgrade() { s.set_capturing_mode(true); }
@@ -341,20 +329,17 @@ pub fn setup_settings_window(
     // 4. 按键大小/颜色/删除操作（通过 dispatch 实现多选批量编辑）
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
-    let s_dirty = settings.as_weak();
     settings.on_update_key_size(move |index, w, h| {
-        let s = match s_weak.upgrade() { Some(x) => x, None => return };
-        state_dispatch.dispatch(UIAction::BatchUpdateWidth { index, value: w }, &s.as_weak());
-        state_dispatch.dispatch(UIAction::BatchUpdateHeight { index, value: h }, &s.as_weak());
         if let Some(win) = s_weak.upgrade() {
+            state_dispatch.dispatch(UIAction::BatchUpdateWidth { index, value: w }, &win.as_weak());
+            state_dispatch.dispatch(UIAction::BatchUpdateHeight { index, value: h }, &win.as_weak());
             win.set_current_w(w);
             win.set_current_h(h);
+            win.set_config_dirty(true);
         }
-        if let Some(win) = s_dirty.upgrade() { win.set_config_dirty(true); }
     });
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
-    let s_dirty = settings.as_weak();
     settings.on_update_key_color(move |index, color| {
         if let Some(s) = s_weak.upgrade() {
             state_dispatch.dispatch(UIAction::BatchUpdateColor { index, color: color.to_string() }, &s.as_weak());
@@ -363,7 +348,6 @@ pub fn setup_settings_window(
     });
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
-    let s_dirty = settings.as_weak();
     settings.on_update_key_opacity(move |index, pct| {
         if let Some(s) = s_weak.upgrade() {
             state_dispatch.dispatch(UIAction::BatchUpdateOpacity { index, pct }, &s.as_weak());
@@ -372,7 +356,6 @@ pub fn setup_settings_window(
     });
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
-    let s_dirty = settings.as_weak();
     settings.on_update_key_bar_width_percent(move |index, pct| {
         if let Some(s) = s_weak.upgrade() {
             state_dispatch.dispatch(UIAction::BatchUpdateBarWidthPercent { index, pct }, &s.as_weak());
@@ -381,7 +364,6 @@ pub fn setup_settings_window(
     });
     let state_del = state.clone();
     let s_weak = settings.as_weak();
-    let s_dirty = settings.as_weak();
     settings.on_delete_key(move |index| {
         let idx = index as usize;
         let mut tmp = state_del.temp_config.lock().unwrap();
@@ -439,154 +421,98 @@ pub fn setup_settings_window(
             // ⭐ 延迟到下一帧事件循环再创建窗口，避免 Slint 回调内重入
             let state_create = state_toggle.clone();
             let s_weak_create = s_weak.clone();
-            let create_timer = Box::new(slint::Timer::default());
-            create_timer.start(
-                slint::TimerMode::SingleShot,
-                std::time::Duration::ZERO,
-                move || {
-                    tracing::debug!("[PARAM-PANEL] deferred creation timer fired");
-                    let s = match s_weak_create.upgrade() {
-                        Some(s) => s,
-                        None => {
-                            tracing::error!("[PARAM-PANEL] deferred: settings_weak expired");
-                            return;
-                        }
-                    };
-
-                    if let Ok(panel) = ParamPanelWindow::new() {
-                        tracing::debug!("[PARAM-PANEL] ParamPanelWindow::new() OK");
-                        // 从 settings 窗口同步属性到面板窗口
-                        panel.set_selected_index(s.get_selected_index());
-                        panel.set_current_x(s.get_current_x());
-                        panel.set_current_y(s.get_current_y());
-                        panel.set_current_w(s.get_current_w());
-                        panel.set_current_h(s.get_current_h());
-                        panel.set_current_color(s.get_current_color());
-                        panel.set_current_opacity_percent(s.get_current_opacity_percent());
-                        panel.set_current_bar_width_percent(s.get_current_bar_width_percent());
-                        panel.set_global_key_color_hex(s.get_global_key_color_hex());
-                        panel.set_global_key_opacity_percent(s.get_global_key_opacity_percent());
-                        panel.set_global_border_color_hex(s.get_global_border_color_hex());
-                        panel.set_front_line_emit(s.get_front_line_emit());
-                        panel.set_flow_direction(s.get_flow_direction());
-                        panel.set_flow_speed(s.get_flow_speed());
-                        panel.set_global_top_boundary(s.get_global_top_boundary());
-                        panel.set_key_margin_width(s.get_key_margin_width());
-
-                        tracing::debug!("[PARAM-PANEL] calling setup_param_panel_window...");
-                        setup_param_panel_window(panel, state_create.clone(), s.as_weak());
-                        s.set_panel_window_open(true);
-                        tracing::debug!("[PARAM-PANEL] panel window setup complete");
-                    } else {
-                        tracing::error!("[PARAM-PANEL] ParamPanelWindow::new() failed");
+            // SingleShot 定时器：触发一次后自动停止，使用 slint::Timer::single_shot 无需手动管理
+            slint::Timer::single_shot(std::time::Duration::ZERO, move || {
+                tracing::debug!("[PARAM-PANEL] deferred creation timer fired");
+                let s = match s_weak_create.upgrade() {
+                    Some(s) => s,
+                    None => {
+                        tracing::error!("[PARAM-PANEL] deferred: settings_weak expired");
+                        return;
                     }
-                },
-            );
-            Box::leak(create_timer);
+                };
+
+                if let Ok(panel) = ParamPanelWindow::new() {
+                    tracing::debug!("[PARAM-PANEL] ParamPanelWindow::new() OK");
+                    // 从 settings 窗口同步属性到面板窗口
+                    panel.set_selected_index(s.get_selected_index());
+                    panel.set_current_x(s.get_current_x());
+                    panel.set_current_y(s.get_current_y());
+                    panel.set_current_w(s.get_current_w());
+                    panel.set_current_h(s.get_current_h());
+                    panel.set_current_color(s.get_current_color());
+                    panel.set_current_opacity_percent(s.get_current_opacity_percent());
+                    panel.set_current_bar_width_percent(s.get_current_bar_width_percent());
+                    panel.set_global_key_color_hex(s.get_global_key_color_hex());
+                    panel.set_global_key_opacity_percent(s.get_global_key_opacity_percent());
+                    panel.set_global_border_color_hex(s.get_global_border_color_hex());
+                    panel.set_front_line_emit(s.get_front_line_emit());
+                    panel.set_flow_direction(s.get_flow_direction());
+                    panel.set_flow_speed(s.get_flow_speed());
+                    panel.set_global_top_boundary(s.get_global_top_boundary());
+                    panel.set_key_margin_width(s.get_key_margin_width());
+
+                    tracing::debug!("[PARAM-PANEL] calling setup_param_panel_window...");
+                    setup_param_panel_window(panel, state_create.clone(), s.as_weak());
+                    s.set_panel_window_open(true);
+                    tracing::debug!("[PARAM-PANEL] panel window setup complete");
+                } else {
+                    tracing::error!("[PARAM-PANEL] ParamPanelWindow::new() failed");
+                }
+            });
         });
     }
 
     let state_save = state.clone();
     let s_weak = settings.as_weak();
     settings.on_save_config(move || {
-        if let Some(s) = s_weak.upgrade() {
-            // 未修改：直接关闭
-            if !s.get_config_dirty() {
-                if let Err(e) = s.hide() {
-                    tracing::error!("隐藏设置窗口失败: {}", e);
-                }
-                return;
-            }
+        let s = match s_weak.upgrade() {
+            Some(s) => s,
+            None => return,
+        };
 
+        // 未修改：直接关闭
+        if !s.get_config_dirty() {
+            if let Err(e) = s.hide() {
+                tracing::error!("隐藏设置窗口失败: {}", e);
+            }
+            return;
+        }
+
+        // ===== 1. 持久化配置 =====
+        {
             let mut real = state_save.config.lock().unwrap_or_else(|e| e.into_inner());
             let tmp = state_save.temp_config.lock().unwrap_or_else(|e| e.into_inner());
-            
-            // temp_config 现在可能包含新配置的窗口位置（切换配置后），直接使用
             *real = tmp.clone();
 
-            // 保存到当前激活的 profile
-            let profile = state_save.current_profile.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let profile =
+                state_save.current_profile.lock().unwrap_or_else(|e| e.into_inner()).clone();
             save_config_to_profile(&profile, &real);
 
             // 重建按键位置缓存
-            {
-                let mut cache = state_save.key_positions.lock().unwrap_or_else(|e| e.into_inner());
-                cache.clear();
-                for k in &real.keys {
-                    cache.push((k.rdev_key_name.clone(), k.x, k.y));
-                }
-            }
-            s.set_config_dirty(false);
-            state_save.notes_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
-
-            drop(tmp); // 提前释放锁，避免后续可能死锁
-
-            if let Some(main_ui) = main_ui_weak.upgrade() {
-                let (w, h) = calculate_window_size(&real);
-                
-                // 1. 统一先更新基础属性（方向、边距等），让画布心里有数
-                main_ui.set_global_border_width(real.global_border_width);
-                main_ui.set_global_border_color(hex_str_to_color(&real.global_border_color));
-                main_ui.set_global_key_color(hex_str_to_color(&real.global_key_color));
-                main_ui.set_key_margin_width(real.key_margin_width);
-                main_ui.set_top_boundary_px(real.top_boundary);
-                main_ui.set_flow_direction(real.flow_direction);
-
-                // 计算按键区域高度：最大物理 Y 范围 + 底部边距
-                let max_bottom = real.keys.iter().map(|k| k.y + k.height).max().unwrap_or(0);
-                let key_area_h = if max_bottom > 0 {
-                    max_bottom + real.key_margin_width
-                } else {
-                    100
-                };
-                main_ui.set_key_area_height(key_area_h);
-
-                // 2. 核心修复：先改变窗口的物理尺寸到目标大小
-                main_ui.window().set_size(slint::PhysicalSize::new(w as u32, h as u32));
-                
-                // 3. 同步更新 UI 内部的像素宽高属性
-                main_ui.set_window_width_px(w);
-                main_ui.set_window_height_px(h);
-
-                // 3.5 用当前配置的窗口位置重新定位主窗口
-                // 规则：计算窗口中心点，超出主显示器范围则重置居中
-                if let (Some(wx), Some(wy)) = (real.window_x, real.window_y) {
-                    let (win_w, win_h) = calculate_window_size(&real);
-                    let should_reset = if let Some(&(sw, sh)) = PRIMARY_SCREEN_SIZE.get() {
-                        is_center_outside(wx, wy, win_w as u32, win_h as u32, sw, sh)
-                    } else {
-                        // 没有屏幕信息时保守处理：负坐标才重置
-                        wx < 0 || wy < 0
-                    };
-                    if should_reset {
-                        if let Some(&(sw, sh)) = PRIMARY_SCREEN_SIZE.get() {
-                            let cx = (sw.saturating_sub(win_w as u32) / 2) as i32;
-                            let cy = (sh.saturating_sub(win_h as u32) / 2) as i32;
-                            main_ui.window().set_position(slint::PhysicalPosition::new(cx, cy));
-                        }
-                    } else {
-                        main_ui.window().set_position(slint::PhysicalPosition::new(wx, wy));
-                    }
-                }
-
-                // 4. 严格使用最终的目标画布宽高 (w, h) 来计算按键比例锚点！
-                // 避免使用临时的 safe_h 导致非对称方向切换时算错相对位置
-                let key_model = create_model(&real.keys);
-                compute_key_ratios(&key_model, w as f32, h as f32);
-                
-                // 5. 最后投递数据模型，触发 Slint 重新绘制
-                main_ui.set_keys(key_model);
-            }
-            // 执行待删除的 profile（保存在当前配置之后，避免误删当前配置）
-            {
-                let pending = state_save.pending_deletions.lock().unwrap().clone();
-                for del_name in &pending {
-                    if *del_name != *state_save.current_profile.lock().unwrap() {
-                        configs::delete_profile(del_name, del_name);
-                    }
-                }
-                state_save.pending_deletions.lock().unwrap().clear();
+            let mut cache = state_save.key_positions.lock().unwrap_or_else(|e| e.into_inner());
+            cache.clear();
+            for k in &real.keys {
+                cache.push((k.rdev_key_name.clone(), k.x, k.y));
             }
         }
+
+        s.set_config_dirty(false);
+        state_save.notes_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        // ===== 2. 通过 ConfigManager 更新主窗口 =====
+        if let Some(main_ui) = main_ui_weak.upgrade() {
+            let cfg = state_save.config.lock().unwrap_or_else(|e| e.into_inner());
+            ConfigManager::apply_to_main_window(&cfg, &main_ui, PRIMARY_SCREEN_SIZE.get().copied());
+        }
+
+        // ===== 3. 执行待删除的 profile =====
+        let pending = state_save.pending_deletions.lock().unwrap().clone();
+        for del_name in &pending {
+            if *del_name != *state_save.current_profile.lock().unwrap() {
+                configs::delete_profile(del_name, del_name);
+            }
+        }
+        state_save.pending_deletions.lock().unwrap().clear();
     });
 }

@@ -68,7 +68,7 @@ pub fn merge_alpha(hex_rgb: &str, opacity_pct: i32) -> String {
     } else {
         format!("{:0<6}", clean)
     };
-    let a = ((opacity_pct.max(1).min(100) * 255) / 100).max(1).min(255);
+    let a = ((opacity_pct.clamp(1, 100) * 255) / 100).clamp(1, 255);
     format!("#{}{:02X}", hex6, a)
 }
 

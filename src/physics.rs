@@ -2,14 +2,56 @@
 use crate::core::config_def::KeyConfig;
 use std::collections::HashMap;
 
-const SNAP_THRESHOLD: i32 = 6;    // 吸附触发阈值
-const ESCAPE_THRESHOLD: i32 = 14; // 脱离吸附所需拉扯距离
-const INDEXING_THRESHOLD: usize = 30; // 超过此数量启用空间索引
+/// AABB 碰撞盒（含 margin 扩展），用于碰撞检测管线的中间传递
+struct CollisionBox {
+    x1: i32,
+    x2: i32,
+    y1: i32,
+    y2: i32,
+}
+
+impl CollisionBox {
+    fn new(x: i32, y: i32, w: i32, h: i32, margin: i32) -> Self {
+        Self {
+            x1: x - margin,
+            x2: x + w + margin,
+            y1: y - margin,
+            y2: y + h + margin,
+        }
+    }
+
+    /// 还原为不含 margin 的原始坐标
+    fn into_origin(self, margin: i32) -> (i32, i32) {
+        (self.x1 + margin, self.y1 + margin)
+    }
+}
 
 pub struct MovementPipeline {
     pub canvas_w: i32,
     pub canvas_h: i32,
     pub margin: i32,
+    /// 吸附触发阈值（像素）
+    pub snap_threshold: i32,
+    /// 脱离吸附所需拉扯距离（像素）
+    pub escape_threshold: i32,
+    /// 空间哈希网格单元尺寸（像素）
+    pub cell_size: i32,
+    /// 超过此数量启用空间哈希索引
+    pub hash_threshold: usize,
+}
+
+impl Default for MovementPipeline {
+    fn default() -> Self {
+        Self {
+            canvas_w: 0,
+            canvas_h: 0,
+            margin: 0,
+            snap_threshold: 6,
+            escape_threshold: 14,
+            cell_size: 100,
+            hash_threshold: 30,
+        }
+    }
 }
 
 impl MovementPipeline {
@@ -60,7 +102,7 @@ impl MovementPipeline {
             mx,
             moved_index,
             keys,
-            SNAP_THRESHOLD,
+            self.snap_threshold,
             skip_indices,
             |k: &KeyConfig| -> [i32; 4] {
                 // 为 X 方向生成 4 个吸附候选值
@@ -77,7 +119,7 @@ impl MovementPipeline {
             my,
             moved_index,
             keys,
-            SNAP_THRESHOLD,
+            self.snap_threshold,
             skip_indices,
             |k: &KeyConfig| -> [i32; 4] {
                 [
@@ -90,20 +132,21 @@ impl MovementPipeline {
         );
 
         // 统一脱离判定：如果最近吸附点离鼠标太远，则取消吸附
-        let fx = if snap_x && (mx - best_x).abs() <= ESCAPE_THRESHOLD { best_x } else { mx };
-        let fy = if snap_y && (my - best_y).abs() <= ESCAPE_THRESHOLD { best_y } else { my };
+        let fx = if snap_x && (mx - best_x).abs() <= self.escape_threshold { best_x } else { mx };
+        let fy = if snap_y && (my - best_y).abs() <= self.escape_threshold { best_y } else { my };
         (fx, fy)
     }
 
     /// 在指定轴上查找距离鼠标坐标最近的吸附候选点（跳过 skip_indices 中的按键）
-    fn find_best_snap_skipping<const N: usize>(
+    /// 候选点数量固定为 4（左/右/上/下四种对齐方式）
+    fn find_best_snap_skipping(
         &self,
         mouse_pos: i32,
         moved_index: usize,
         keys: &[KeyConfig],
         threshold: i32,
         skip_indices: &std::collections::HashSet<usize>,
-        candidates_fn: impl Fn(&KeyConfig) -> [i32; N],
+        candidates_fn: impl Fn(&KeyConfig) -> [i32; 4],
     ) -> (i32, bool) {
         let mut best = mouse_pos;
         let mut best_dist = threshold;
@@ -126,7 +169,7 @@ impl MovementPipeline {
 
     // ==========================================================
     // Filter 2: AABB 刚体碰撞阻挡
-    // 按键数 ≥ INDEXING_THRESHOLD 时启用空间哈希索引
+    // 按键数 ≥ hash_threshold 时启用空间哈希索引
     // ==========================================================
     fn apply_aabb_collision(
         &self,
@@ -140,49 +183,46 @@ impl MovementPipeline {
         let key_h = keys[moved_index].height;
         let margin = self.margin;
 
-        let mut ax1 = target_x - margin;
-        let mut ax2 = target_x + key_w + margin;
-        let mut ay1 = target_y - margin;
-        let mut ay2 = target_y + key_h + margin;
+        let mut cb = CollisionBox::new(target_x, target_y, key_w, key_h, margin);
 
-        if keys.len() >= INDEXING_THRESHOLD {
-            self.apply_aabb_collision_indexed(moved_index, &mut ax1, &mut ax2, &mut ay1, &mut ay2, keys, skip_indices);
+        if keys.len() >= self.hash_threshold {
+            self.apply_aabb_collision_indexed(moved_index, &mut cb, keys, skip_indices);
         } else {
-            self.apply_aabb_collision_bruteforce(moved_index, &mut ax1, &mut ax2, &mut ay1, &mut ay2, keys, skip_indices);
+            self.apply_aabb_collision_bruteforce(moved_index, &mut cb, keys, skip_indices);
         }
 
-        (ax1 + margin, ay1 + margin)
+        cb.into_origin(margin)
     }
 
+    /// 暴力遍历碰撞检测（用于按键数 < hash_threshold 的情况）
     fn apply_aabb_collision_bruteforce(
         &self,
         moved_index: usize,
-        ax1: &mut i32,
-        ax2: &mut i32,
-        ay1: &mut i32,
-        ay2: &mut i32,
+        cb: &mut CollisionBox,
         keys: &[KeyConfig],
         skip_indices: &std::collections::HashSet<usize>,
     ) {
         let margin = self.margin;
+        let mov_w = keys[moved_index].width;
+        let mov_h = keys[moved_index].height;
         for (i, b) in keys.iter().enumerate() {
             if i == moved_index || skip_indices.contains(&i) { continue; }
-            self.resolve_one_collision(b, margin, ax1, ax2, ay1, ay2);
+            self.resolve_one_collision(b, margin, cb, mov_w, mov_h);
         }
     }
 
+    /// 空间哈希加速碰撞检测（用于按键数 ≥ hash_threshold 的情况）
     fn apply_aabb_collision_indexed(
         &self,
         moved_index: usize,
-        ax1: &mut i32,
-        ax2: &mut i32,
-        ay1: &mut i32,
-        ay2: &mut i32,
+        cb: &mut CollisionBox,
         keys: &[KeyConfig],
         skip_indices: &std::collections::HashSet<usize>,
     ) {
         let margin = self.margin;
-        let cell_size = 100; // 空间哈希网格单元大小
+        let mov_w = keys[moved_index].width;
+        let mov_h = keys[moved_index].height;
+        let cell_size = self.cell_size;
 
         // 构建空间哈希：将按键映射到网格
         let mut grid: HashMap<(i32, i32), Vec<usize>> = HashMap::new();
@@ -194,14 +234,14 @@ impl MovementPipeline {
         }
 
         // 移动键所在网格及其相邻 8 格
-        let gx = (*ax1 + *ax2) / 2 / cell_size;
-        let gy = (*ay1 + *ay2) / 2 / cell_size;
+        let gx = (cb.x1 + cb.x2) / 2 / cell_size;
+        let gy = (cb.y1 + cb.y2) / 2 / cell_size;
         for dx in -1..=1 {
             for dy in -1..=1 {
                 if let Some(indices) = grid.get(&(gx + dx, gy + dy)) {
                     for &i in indices {
                         let b = &keys[i];
-                        self.resolve_one_collision(b, margin, ax1, ax2, ay1, ay2);
+                        self.resolve_one_collision(b, margin, cb, mov_w, mov_h);
                     }
                 }
             }
@@ -209,60 +249,74 @@ impl MovementPipeline {
     }
 
     /// 解析单个按键与移动键的碰撞
+    ///
+    /// 碰撞策略：计算两个 AABB 在 X 和 Y 方向的重叠量，
+    /// 选择重叠较小的方向作为推开方向（即沿最短路径推开），
+    /// 通过中心点位置决定向左/右或上/下推开。
     #[inline(always)]
     fn resolve_one_collision(
         &self,
         b: &KeyConfig,
         margin: i32,
-        ax1: &mut i32,
-        ax2: &mut i32,
-        ay1: &mut i32,
-        ay2: &mut i32,
+        cb: &mut CollisionBox,
+        mov_w: i32,
+        mov_h: i32,
     ) {
         let bx1 = b.x - margin;
         let bx2 = b.x + b.width + margin;
         let by1 = b.y - margin;
         let by2 = b.y + b.height + margin;
 
-        if *ax1 < bx2 && *ax2 > bx1 && *ay1 < by2 && *ay2 > by1 {
-            let overlap_w = (*ax2).min(bx2) - (*ax1).max(bx1);
-            let overlap_h = (*ay2).min(by2) - (*ay1).max(by1);
+        if cb.x1 < bx2 && cb.x2 > bx1 && cb.y1 < by2 && cb.y2 > by1 {
+            let overlap_w = cb.x2.min(bx2) - cb.x1.max(bx1);
+            let overlap_h = cb.y2.min(by2) - cb.y1.max(by1);
 
             if overlap_w < overlap_h {
-                let center_a = *ax1 + (*ax2 - *ax1) / 2;
+                let center_a = cb.x1 + (cb.x2 - cb.x1) / 2;
                 let center_b = bx1 + (bx2 - bx1) / 2;
                 if center_a < center_b {
-                    *ax1 -= overlap_w;
+                    cb.x1 -= overlap_w;
                 } else {
-                    *ax1 += overlap_w;
+                    cb.x1 += overlap_w;
                 }
-                *ax2 = *ax1 + (b.width) + margin * 2;
+                cb.x2 = cb.x1 + mov_w + margin * 2;
             } else {
-                let center_a = *ay1 + (*ay2 - *ay1) / 2;
+                let center_a = cb.y1 + (cb.y2 - cb.y1) / 2;
                 let center_b = by1 + (by2 - by1) / 2;
                 if center_a < center_b {
-                    *ay1 -= overlap_h;
+                    cb.y1 -= overlap_h;
                 } else {
-                    *ay1 += overlap_h;
+                    cb.y1 += overlap_h;
                 }
-                *ay2 = *ay1 + (b.height) + margin * 2;
+                cb.y2 = cb.y1 + mov_h + margin * 2;
             }
         }
     }
 
     // ==========================================================
-    // Filter 3: 画布边缘强制限幅（仅限左边界和上边界）
+    // Filter 3: 画布边缘强制限幅
+    // 限制左/上边界（不能小于 margin），同时限制右/下边界
+    // （按键 + margin 不能超出 canvas_w/canvas_h）
     // ==========================================================
     fn apply_canvas_boundary(
         &self,
-        _idx: usize,
+        idx: usize,
         x: i32,
         y: i32,
-        _keys: &[KeyConfig],
+        keys: &[KeyConfig],
     ) -> (i32, i32) {
         let margin = self.margin;
+        let key_w = keys[idx].width;
+        let key_h = keys[idx].height;
+
+        // 左/上边界限幅
         let fx = if x - margin < 0 { margin } else { x };
         let fy = if y - margin < 0 { margin } else { y };
+
+        // 右/下边界限幅（按键右/下边缘 + margin 不超出画布）
+        let fx = if fx + key_w + margin > self.canvas_w { self.canvas_w - key_w - margin } else { fx };
+        let fy = if fy + key_h + margin > self.canvas_h { self.canvas_h - key_h - margin } else { fy };
+
         (fx, fy)
     }
 }

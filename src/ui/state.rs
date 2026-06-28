@@ -6,6 +6,23 @@ use crate::ui::model::create_model_with_selection;
 use crate::{ParamPanelWindow, SettingsWindow, KeyCaptureDialog};
 use crate::physics::MovementPipeline;
 
+/// 参数面板的定时器组 — 持有所有权避免 Box::leak
+pub struct PanelTimerGroup {
+    /// 属性同步 + 吸附跟随定时器（30ms）
+    pub follow_timer: Option<slint::Timer>,
+    /// 设置窗口关闭检测定时器（100ms）
+    pub close_check_timer: Option<slint::Timer>,
+}
+
+impl PanelTimerGroup {
+    pub fn new() -> Self {
+        Self {
+            follow_timer: None,
+            close_check_timer: None,
+        }
+    }
+}
+
 /// 🌟 UI 意图枚举 —— 整个配置窗口所有用户操作的统一描述
 pub enum UIAction {
     /// 点击画布坐标进行 hit-test 选中
@@ -86,9 +103,12 @@ pub struct AppState {
     pub current_profile: Arc<Mutex<String>>,
     /// 待删除的 profile 名称列表（保存时才真正执行删除）
     pub pending_deletions: Arc<Mutex<Vec<String>>>,
+    /// 参数面板定时器组 — 持有所有权，避免 Box::leak
+    pub panel_timers: Arc<Mutex<PanelTimerGroup>>,
 }
 
 impl AppState {
+    #[allow(clippy::arc_with_non_send_sync)]
     pub fn new(init_config: AppConfig, profile_name: &str) -> Self {
         Self {
             config: Arc::new(Mutex::new(init_config)),
@@ -104,6 +124,7 @@ impl AppState {
             selected_indices: Arc::new(Mutex::new(HashSet::new())),
             current_profile: Arc::new(Mutex::new(profile_name.to_string())),
             pending_deletions: Arc::new(Mutex::new(Vec::new())),
+            panel_timers: Arc::new(Mutex::new(PanelTimerGroup::new())),
         }
     }
 }
@@ -124,6 +145,7 @@ impl Clone for AppState {
             selected_indices: Arc::clone(&self.selected_indices),
             current_profile: Arc::clone(&self.current_profile),
             pending_deletions: Arc::clone(&self.pending_deletions),
+            panel_timers: Arc::clone(&self.panel_timers),
         }
     }
 }
@@ -216,6 +238,7 @@ impl AppState {
                     canvas_w,
                     canvas_h,
                     margin: tmp.key_margin_width,
+                    ..Default::default()
                 };
 
                 // 仅让拖拽的锚点按键穿过物理过滤器（跳过其他选中按键）
@@ -265,6 +288,7 @@ impl AppState {
                     canvas_w,
                     canvas_h,
                     margin: tmp.key_margin_width,
+                    ..Default::default()
                 };
 
                 // 穿过物理过滤器（手动 SpinBox 调整，关闭磁性吸附过滤）
@@ -275,9 +299,8 @@ impl AppState {
                 let margin = tmp.key_margin_width;
                 let mut can_move_x = true;
                 for &si in skip.iter() {
-                    if si < tmp.keys.len() {
-                        if tmp.keys[si].x + dx - margin < 0 { can_move_x = false; }
-                    }
+                    if si < tmp.keys.len()
+                        && tmp.keys[si].x + dx - margin < 0 { can_move_x = false; }
                 }
                 let final_dx = if can_move_x { dx } else { 0 };
                 for &si in skip.iter() {
@@ -299,6 +322,7 @@ impl AppState {
                     canvas_w,
                     canvas_h,
                     margin: tmp.key_margin_width,
+                    ..Default::default()
                 };
 
                 let (_real_x, real_y) = pipeline.transform_position(idx, tmp.keys[idx].x, value, &tmp.keys, false, &skip);
@@ -308,9 +332,8 @@ impl AppState {
                 let margin = tmp.key_margin_width;
                 let mut can_move_y = true;
                 for &si in skip.iter() {
-                    if si < tmp.keys.len() {
-                        if tmp.keys[si].y + dy - margin < 0 { can_move_y = false; }
-                    }
+                    if si < tmp.keys.len()
+                        && tmp.keys[si].y + dy - margin < 0 { can_move_y = false; }
                 }
                 let final_dy = if can_move_y { dy } else { 0 };
                 for &si in skip.iter() {

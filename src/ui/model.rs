@@ -108,13 +108,12 @@ pub fn update_key_visual_state(
     is_pressed: bool,
     index_map: &KeyIndexMap,
 ) {
-    if let Some(ui) = ui_weak.upgrade() {
-        if let Some(&idx) = index_map.get(key_name) {
+    if let Some(ui) = ui_weak.upgrade()
+        && let Some(&idx) = index_map.get(key_name) {
             let model = ui.get_keys();
             if let Some(mut data) = model.row_data(idx) {
                 data.is_pressed = is_pressed;
                 model.set_row_data(idx, data);
             }
         }
-    }
 }

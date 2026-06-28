@@ -61,7 +61,7 @@ impl LiveVisualizer {
                     note.is_growing = false;
                 }
                 let speed = cfg.flow_speed.max(1);
-                let pct = key_cfg.bar_width_percent.max(10).min(100);
+                let pct = key_cfg.bar_width_percent.clamp(10, 100);
                 let bar_w = key_cfg.width * pct / 100;
                 let bar_h = key_cfg.height * pct / 100;
 

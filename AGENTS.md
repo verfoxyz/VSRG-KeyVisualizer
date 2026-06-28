@@ -80,13 +80,29 @@ spawn() → 每 16ms 循环:
   4. 否则 → 检查 virtual_pos，SetWindowPos
 ```
 
+#### 属性同步（按需 Diff）
+
+不再使用 30ms 定时器无脑同步所有属性。改由 `PanelPropertySnapshot` 结构体缓存上一次属性值：
+- `from_settings()` 从 `SettingsWindow` 快照当前全部属性
+- `apply_diff()` 逐字段对比旧快照，仅 set 真正变化的属性，减少冗余 Slint 属性更新
+- 属性同步逻辑合并到 `follow_timer`（30ms）中，与 SNAPPED 管理共用一个定时器
+
+#### 定时器管理（淘汰 Box::leak）
+
+`AppState.panel_timers`（`Arc<Mutex<PanelTimerGroup>>`）持有面板生命周期内的两个定时器：
+- `follow_timer` — 30ms 属性同步 + SNAPPED 管理（Repeated）
+- `close_check_timer` — 100ms 检测设置窗口是否关闭（Repeated）
+
+面板关闭时自动清理定时器（`panel_timers.lock().follow_timer = None`），避免生命周期残留。
+面板创建时 SingleShot 延迟定时器改用 `slint::Timer::single_shot` 静态方法，无需手动管理。
+
 #### Show/Hide 面板
 
 - 通过 `param_panel_holder`（`Arc<Mutex<Option<ParamPanelWindow>>`，强引用）管理生命周期
 - **Show**：创建 `ParamPanelWindow` → 存储到 `param_panel_holder` → 调用 `.show()`
 - **Hide**：调用 `.hide()`，后台线程跳过（`PARAM_PANEL_HWND` 为空）
 - **设置窗口关闭时自动关闭面板**：后台线程检测 `SETTINGS_HWND` 有效性
-- **防冻结**：通过 `SingleShotTimer` 延迟创建窗口，避免 Slint callback 递归
+- **防冻结**：通过 `Timer::single_shot` 延迟创建窗口，避免 Slint callback 递归
 
 ### 配置窗口布局
 
@@ -154,10 +170,11 @@ VSRG-KeyVisualizer/
 │   ├── core/                       # 核心数据结构和基础工具
 │   │   ├── mod.rs
 │   │   ├── config_def.rs           # AppConfig/KeyConfig/BarNote/MyKeyEvent 定义 + Default
+│   │   ├── config_manager.rs       # ConfigManager: AppConfig → UI State 转换计算（窗口/尺寸/位置恢复/模型投递）
 │   │   └── color.rs                # hex_str_to_color/merge_alpha/split_alpha 颜色工具
 │   ├── ui/                         # UI 逻辑
 │   │   ├── mod.rs
-│   │   ├── state.rs                # AppState（14 个 Arc 字段）、UIAction 枚举、dispatch 中央分发器
+│   │   ├── state.rs                # AppState（15 个 Arc 字段）、PanelTimerGroup、UIAction 枚举、dispatch 中央分发器
 │   │   └── model.rs                # ToKeyData trait、create_model/create_model_with_selection、
 │   │                                #   compute_key_ratios、update_key_visual_state（O(1) HashMap 索引）、
 │   │                                #   build_key_index_map、KeyIndexMap 类型
@@ -168,7 +185,8 @@ VSRG-KeyVisualizer/
 │   ├── gui/                        # Slint 窗口回调绑定
 │   │   ├── settings_window.rs      # 配置窗口初始化、所有 on_<callback> 绑定、config_dirty 标记、
 │   │   │                           #   保存/关闭按钮联动、参数面板创建
-│   │   └── param_panel_window.rs   # 独立参数面板窗口管理（拖拽、吸附跟随、16ms 后台轮询线程）
+│   │   └── param_panel_window.rs   # 独立参数面板窗口管理（拖拽、吸附跟随、PanelPropertySnapshot diff 同步、
+│   │                               #   16ms 后台轮询线程）
 │   ├── configs.rs                  # 多 profile 管理（目录初始化、config.json 迁移、CRUD）
 │   ├── events.rs                   # start_event_timer 16ms 驱动渲染循环、MacroRecorder、
 │   │                               #   LiveVisualizer 音符生成/生长/移动/回收
@@ -207,16 +225,17 @@ VSRG-KeyVisualizer/
 |------|------|
 | `src/main.rs` | 入口、模块声明、MainWindow 回调绑定（单击/双击/拖拽/设置/关闭）、Raw Input 消息窗口线程、事件循环启动。返回 `Result<(), Box<dyn Error>>` |
 | `src/core/config_def.rs` | `AppConfig`/`KeyConfig`/`BarNote`/`MyKeyEvent` 核心数据类型定义 + `Default` 实现 + serde 序列化 |
+| `src/core/config_manager.rs` | `ConfigManager` — `apply_to_main_window()` 封装 AppConfig→UI State 转换：基础属性更新、窗口尺寸/位置恢复、按键比例锚点、模型投递。解耦 `on_save_config` 中的臃肿逻辑 |
 | `src/core/color.rs` | `hex_str_to_color` 解析 #RGB/#RRGGBB/#RRGGBBAA、`merge_alpha`/`split_alpha` 透明度合并拆分 |
-| `src/ui/state.rs` | `AppState` 全部共享状态（14 个 `Arc` 字段）、`UIAction` 枚举（11 种操作）、`dispatch()` 中央分发器、`param_panel_holder` 强引用管理面板生命周期 |
+| `src/ui/state.rs` | `AppState` 全部共享状态（15 个 `Arc` 字段）、`PanelTimerGroup`（`follow_timer`/`close_check_timer` 持有）、`UIAction` 枚举（11 种操作）、`dispatch()` 中央分发器、`param_panel_holder` 强引用管理面板生命周期 |
 | `src/ui/model.rs` | `ToKeyData` trait、`create_model`/`create_model_with_selection`（含多选高亮）、`compute_key_ratios`、`update_key_visual_state`（HashMap 索引 O(1)）、`build_key_index_map`/`KeyIndexMap` 类型 |
 | `src/platform/window.rs` | `make_window_clickthrough`（Win32 LWA_COLORKEY）、`restore_window_position`（多显示器遍历）、`calculate_window_size`、`SafeHWND`/`MAIN_HWND` 全局 |
 | `src/configs.rs` | 多 profile 管理：目录初始化、旧 config.json 迁移、`load_active_profile`/`save_profile`/`list_profiles` |
 | `src/events.rs` | `start_event_timer` 16ms 定时器驱动渲染循环、`MacroRecorder` 捕获按键写入配置、`LiveVisualizer` 音符生成/生长/移动/回收。按键索引通过 `OnceLock<KeyIndexMap>` 缓存 |
 | `src/physics.rs` | `MovementPipeline` 三阶段管线（磁吸吸附→AABB碰撞→边界限幅）、`find_best_snap_skipping` 候选吸附、`resolve_one_collision` 碰撞解析、`spatial_hash` 空间哈希（≥30 键自动） |
 | `src/ri_table.rs` | Windows Raw Input 虚拟键码 → rdev 字符串映射表 |
-| `src/gui/settings_window.rs` | `setup_settings_window()` 配置窗口初始化、所有 Slint callback 绑定、`config_dirty` 脏标记追踪、保存/关闭按钮联动（脏则保留，干净则关）、参数面板创建 |
-| `src/gui/param_panel_window.rs` | 独立参数面板生命周期管理：创建/显示/隐藏/关闭、SNAPPED 状态机（吸附/跟随/解除）、16ms 后台轮询线程 SetWindowPos 定位 |
+| `src/gui/settings_window.rs` | `setup_settings_window()` 配置窗口初始化、所有 Slint callback 绑定、`config_dirty` 脏标记追踪、保存/关闭按钮联动（脏则保留，干净则关）、参数面板创建。`on_save_config` 通过 `ConfigManager` 解耦 |
+| `src/gui/param_panel_window.rs` | 独立参数面板生命周期管理：创建/显示/隐藏/关闭、SNAPPED 状态机（吸附/跟随/解除）、16ms 后台轮询线程 SetWindowPos 定位、`PanelPropertySnapshot` diff 按需属性同步（附合并在 follow_timer 中） |
 | `ui/main_window/main_window.slint` | 透明窗口、`for key_info in keys` 按键渲染 + `for bar in bar_notes` 音符渲染、TouchArea 交互、右键菜单 PopupWindow |
 | `ui/settings/param_panel_window.slint` | 独立参数面板窗口（no-frame、自定义 drag 回调、可折叠 KeyProps/GlobalSettings） |
 | `ui/settings/settings_window.slint` | 配置窗口整体布局：左侧可折叠 Profile 列表 + 右侧画布预览 + `config_dirty` 属性 + 底部操作按钮（Save/Close 联动） |
@@ -262,6 +281,7 @@ VS Code 调试配置在 `.vscode/launch.json`：**Debug executable 'VSRG-KeyVisu
 - **短持有模式**：`selected_indices` 和 `drag_offset` 使用 `clone() + drop()`（在 `{ }` 块中获取锁并 clone，立即释放），避免嵌套锁。
 - **跨线程通信**：`crossbeam_channel::unbounded<MyKeyEvent>` 用于键盘事件线程 → 主线程 16ms 轮询。
 - **窗口弱引用**：`dialog_holder` / `settings_holder` 存 `slint::Weak<T>`，避免循环引用。**例外**：`param_panel_holder` 使用强引用 `ParamPanelWindow`（`Arc<Mutex<Option<ParamPanelWindow>>>`），防止函数返回时窗口被析构。
+- **定时器所有权**：`AppState.panel_timers`（`Arc<Mutex<PanelTimerGroup>>`）持有 `follow_timer` 和 `close_check_timer`，避免 `Box::leak`。SingleShot 定时器用 `Timer::single_shot` 静态方法。
 - **原子标志位**：`capture_mode` / `notes_dirty` / `SNAPPED` / `POLLING_ACTIVE` / `DRAG_STATE.started` 等用 `AtomicBool`，无锁读取。
 
 ## 测试指南
@@ -302,3 +322,4 @@ VS Code 调试配置在 `.vscode/launch.json`：**Debug executable 'VSRG-KeyVisu
 - **`key_handler`** 位于右侧容器根级（不依赖 `if` 条件块），确保键盘快捷键始终生效。
 - **错误处理**：`main()` 使用 `Result<(), Box<dyn Error>>` 返回值，主流程 `unwrap()` 已替换为 `?`。所有 `Mutex::lock()` 通过 `unwrap_or_else(|e| e.into_inner())` 处理 poison。
 - **多显示器支持**：`restore_window_position()` 遍历所有 `available_monitors()` 检查窗口中心点，仅当所有显示器都不包含时才重置到主屏居中。
+- **ConfigManager**：`src/core/config_manager.rs` 封装 `AppConfig → UI State` 转换计算。`on_save_config` 不再直接处理窗口逻辑，改为调用 `ConfigManager::apply_to_main_window()`。新增配置项时，只需扩展 `ConfigManager` 而非 `on_save_config`。
