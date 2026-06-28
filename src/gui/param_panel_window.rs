@@ -20,7 +20,6 @@ const SNAP_GAP: i32 = 4;
 static SNAPPED: AtomicBool = AtomicBool::new(true);
 /// 上一帧设置窗口的 X 坐标（用于区分"设置窗口移动"vs"用户拖动面板"）
 static PREV_SETTINGS_X: std::sync::Mutex<Option<i32>> = std::sync::Mutex::new(None);
-
 /// 拖拽状态
 static DRAG_STATE: std::sync::Mutex<Option<DragInfo>> = std::sync::Mutex::new(None);
 

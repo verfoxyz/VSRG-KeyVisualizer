@@ -242,49 +242,67 @@ pub fn setup_settings_window(
     });
 
     let settings_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     let state_clone = state.clone();
     settings.on_update_key_position(move |index, x, y, cw, ch| {
         state_clone.dispatch(UIAction::DragKeyOnCanvas { index, mouse_x: x, mouse_y: y, canvas_w: cw, canvas_h: ch }, &settings_weak);
+        if let Some(s) = s_dirty.upgrade() { s.set_config_dirty(true); }
     });
 
     let settings_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     let state_clone = state.clone();
     settings.on_update_key_position_x(move |index, val, cw, ch| {
         state_clone.dispatch(UIAction::SpinBoxUpdateX { index, value: val, canvas_w: cw, canvas_h: ch }, &settings_weak);
+        if let Some(s) = s_dirty.upgrade() { s.set_config_dirty(true); }
     });
 
     let settings_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     let state_clone = state.clone();
     settings.on_update_key_position_y(move |index, val, cw, ch| {
         state_clone.dispatch(UIAction::SpinBoxUpdateY { index, value: val, canvas_w: cw, canvas_h: ch }, &settings_weak);
+        if let Some(s) = s_dirty.upgrade() { s.set_config_dirty(true); }
     });
 
-    // 3. 全局基础配置保存与退出交互
+    // 3. 全局基础配置保存与退出交互（所有编辑操作标记 dirty）
+    let mark = |s: &slint::Weak<SettingsWindow>| {
+        if let Some(ui) = s.upgrade() { ui.set_config_dirty(true); }
+    };
     let tc = state.temp_config.clone();
-    settings.on_top_boundary_edited(move |bd| tc.lock().unwrap().top_boundary = bd);
+    let s = settings.as_weak();
+    settings.on_top_boundary_edited(move |bd| { tc.lock().unwrap().top_boundary = bd; mark(&s); });
     let tc = state.temp_config.clone();
-    settings.on_key_margin_edited(move |margin| tc.lock().unwrap().key_margin_width = margin);
+    let s = settings.as_weak();
+    settings.on_key_margin_edited(move |margin| { tc.lock().unwrap().key_margin_width = margin; mark(&s); });
     let tc = state.temp_config.clone();
-    settings.on_border_color_edited(move |color| tc.lock().unwrap().global_border_color = color.to_string());
+    let s = settings.as_weak();
+    settings.on_border_color_edited(move |color| { tc.lock().unwrap().global_border_color = color.to_string(); mark(&s); });
     let tc = state.temp_config.clone();
+    let s = settings.as_weak();
     settings.on_key_color_edited(move |color| {
         let mut tmp = tc.lock().unwrap();
         let (_, old_pct) = split_alpha(&tmp.global_key_color);
         tmp.global_key_color = merge_alpha(&color, old_pct);
+        mark(&s);
     });
     let tc = state.temp_config.clone();
+    let s = settings.as_weak();
     settings.on_key_opacity_edited(move |pct| {
         let mut tmp = tc.lock().unwrap();
         let (rgb, _) = split_alpha(&tmp.global_key_color);
         tmp.global_key_color = merge_alpha(&rgb, pct);
+        mark(&s);
     });
-
     let tc = state.temp_config.clone();
-    settings.on_flow_direction_edited(move |dir| tc.lock().unwrap().flow_direction = dir);
+    let s = settings.as_weak();
+    settings.on_flow_direction_edited(move |dir| { tc.lock().unwrap().flow_direction = dir; mark(&s); });
     let tc = state.temp_config.clone();
-    settings.on_flow_speed_edited(move |speed| tc.lock().unwrap().flow_speed = speed);
+    let s = settings.as_weak();
+    settings.on_flow_speed_edited(move |speed| { tc.lock().unwrap().flow_speed = speed; mark(&s); });
     let tc = state.temp_config.clone();
-    settings.on_front_line_emit_toggled(move |val| tc.lock().unwrap().front_line_emit = val);
+    let s = settings.as_weak();
+    settings.on_front_line_emit_toggled(move |val| { tc.lock().unwrap().front_line_emit = val; mark(&s); });
 
     let state_add = state.clone();
     let s_weak = settings.as_weak();
@@ -319,6 +337,7 @@ pub fn setup_settings_window(
     // 4. 按键大小/颜色/删除操作（通过 dispatch 实现多选批量编辑）
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     settings.on_update_key_size(move |index, w, h| {
         let s = match s_weak.upgrade() { Some(x) => x, None => return };
         state_dispatch.dispatch(UIAction::BatchUpdateWidth { index, value: w }, &s.as_weak());
@@ -327,30 +346,38 @@ pub fn setup_settings_window(
             win.set_current_w(w);
             win.set_current_h(h);
         }
+        if let Some(win) = s_dirty.upgrade() { win.set_config_dirty(true); }
     });
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     settings.on_update_key_color(move |index, color| {
         if let Some(s) = s_weak.upgrade() {
             state_dispatch.dispatch(UIAction::BatchUpdateColor { index, color: color.to_string() }, &s.as_weak());
+            s.set_config_dirty(true);
         }
     });
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     settings.on_update_key_opacity(move |index, pct| {
         if let Some(s) = s_weak.upgrade() {
             state_dispatch.dispatch(UIAction::BatchUpdateOpacity { index, pct }, &s.as_weak());
+            s.set_config_dirty(true);
         }
     });
     let state_dispatch = state.clone();
     let s_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     settings.on_update_key_bar_width_percent(move |index, pct| {
         if let Some(s) = s_weak.upgrade() {
             state_dispatch.dispatch(UIAction::BatchUpdateBarWidthPercent { index, pct }, &s.as_weak());
+            s.set_config_dirty(true);
         }
     });
     let state_del = state.clone();
     let s_weak = settings.as_weak();
+    let s_dirty = settings.as_weak();
     settings.on_delete_key(move |index| {
         let idx = index as usize;
         let mut tmp = state_del.temp_config.lock().unwrap();
@@ -360,6 +387,7 @@ pub fn setup_settings_window(
         if let Some(s) = s_weak.upgrade() {
             s.set_selected_index(-1);
             s.set_root_preview_keys(create_model(&tmp.keys));
+            s.set_config_dirty(true);
         }
     });
 
@@ -369,6 +397,7 @@ pub fn setup_settings_window(
     settings.on_delete_selected_keys(move || {
         if let Some(s) = s_weak.upgrade() {
             state_del.dispatch(UIAction::BatchDeleteKeys, &s.as_weak());
+            s.set_config_dirty(true);
         }
     });
 
@@ -457,6 +486,12 @@ pub fn setup_settings_window(
     let s_weak = settings.as_weak();
     settings.on_save_config(move || {
         if let Some(s) = s_weak.upgrade() {
+            // 未修改：直接关闭
+            if !s.get_config_dirty() {
+                s.hide().unwrap();
+                return;
+            }
+
             let mut real = state_save.config.lock().unwrap();
             let tmp = state_save.temp_config.lock().unwrap();
             
@@ -475,7 +510,10 @@ pub fn setup_settings_window(
                     cache.push((k.rdev_key_name.clone(), k.x, k.y));
                 }
             }
+            s.set_config_dirty(false);
             state_save.notes_dirty.store(true, std::sync::atomic::Ordering::Relaxed);
+
+            drop(tmp); // 提前释放锁，避免后续可能死锁
 
             if let Some(main_ui) = main_ui_weak.upgrade() {
                 let (w, h) = calculate_window_size(&real);
@@ -543,7 +581,6 @@ pub fn setup_settings_window(
                 }
                 state_save.pending_deletions.lock().unwrap().clear();
             }
-            s.hide().unwrap();
         }
     });
 }

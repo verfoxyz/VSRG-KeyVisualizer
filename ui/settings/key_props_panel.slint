@@ -62,7 +62,7 @@ export component KeyPropsPanel {
                 current_x_input := SpinBox {
                     value <=> root.current_x;
                     minimum: -9999; maximum: 9999;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     enabled: root.selected_index != -1;
                     edited => {
                         root.update_key_position_x(
@@ -78,7 +78,7 @@ export component KeyPropsPanel {
                 current_y_input := SpinBox {
                     value <=> root.current_y;
                     minimum: -9999; maximum: 9999;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     enabled: root.selected_index != -1;
                     edited => {
                         root.update_key_position_y(
@@ -95,7 +95,7 @@ export component KeyPropsPanel {
                     value <=> root.current_w;
                     enabled: root.selected_index != -1;
                     minimum: 1;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => {
                         root.current_w = self.value;
                         root.update_key_size(root.selected_index, self.value, root.current_h);
@@ -110,7 +110,7 @@ export component KeyPropsPanel {
                     value <=> root.current_h;
                     enabled: root.selected_index != -1;
                     minimum: 1;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => {
                         root.current_h = self.value;
                         root.update_key_size(root.selected_index, root.current_w, self.value);
@@ -123,7 +123,7 @@ export component KeyPropsPanel {
                 Text { text: "Color:"; width: 50px; color: white; vertical-alignment: center; }
                 current_col_input := LineEdit {
                     text <=> root.current_color;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     enabled: root.selected_index != -1;
                     edited => {
                         root.current_color = self.text;
@@ -139,7 +139,7 @@ export component KeyPropsPanel {
                     value <=> root.current_opacity_percent;
                     enabled: root.selected_index != -1;
                     minimum: 1; maximum: 100; step-size: 5;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => {
                         root.current_opacity_percent = self.value;
                         root.update_key_opacity(root.selected_index, self.value);
@@ -154,7 +154,7 @@ export component KeyPropsPanel {
                     value <=> root.current_bar_width_percent;
                     enabled: root.selected_index != -1;
                     minimum: 10; maximum: 100; step-size: 5;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => {
                         root.current_bar_width_percent = self.value;
                         root.update_key_bar_width_percent(root.selected_index, self.value);

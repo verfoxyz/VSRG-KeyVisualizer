@@ -6,7 +6,7 @@ import { SettingsPreview } from "settings_preview.slint";
 
 export component SettingsWindow inherits Window {
     min-height: 400px;
-    min-width: 600px;
+    min-width: 800px;
     title: "VSRG-KeyVisualizer config";
     background: #252525;
     always-on-top: true;
@@ -72,6 +72,9 @@ export component SettingsWindow inherits Window {
     // 独立参数面板窗口（由外部 Rust 管理）
     in-out property <bool> panel_window_open: false;
     callback toggle_param_panel();
+    // 配置是否已修改（控制保存按钮文本）
+    in-out property <bool> config_dirty: false;
+    callback mark_dirty();
     // 左侧 Profile 列表展开/折叠（默认折叠）
     in-out property <bool> profile_expanded: false;
 
@@ -177,8 +180,8 @@ export component SettingsWindow inherits Window {
                             clicked => { root.confirm_delete_visible = true; }
                         }
                         Button {
-                            text: "Save Config & Close";
-                            primary: true;
+                            text: root.config_dirty ? "Save Config" : "Close";
+                            primary: root.config_dirty;
                             clicked => { root.save_config(); }
                         }
                     }

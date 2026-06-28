@@ -2,13 +2,10 @@ import { KeyPropsPanel } from "key_props_panel.slint";
 import { GlobalSettingsPanel } from "global_settings_panel.slint";
 
 export component ParamPanelWindow inherits Window {
-    min-width: 300px;
-    max-width: 300px;
+    width: 300px;
     no-frame: true;
     background: #2a2a2a;
     always-on-top: true;
-    height: max(150px, content_container.preferred-height + 36px);
-
 
     // ===== 按键属性（与 SettingsWindow 同步） =====
     in-out property <int> current_x;
@@ -97,48 +94,61 @@ export component ParamPanelWindow inherits Window {
             }
         }
 
-        // ===== 按键属性面板 =====
-        content_container := VerticalLayout {
+        // ===== 按键属性面板（通过 Rectangle 约束高度实现折叠） =====
+        VerticalLayout {
             padding: 8px;
             spacing: 0px;
-            KeyPropsPanel {
-                current_x <=> root.current_x;
-                current_y <=> root.current_y;
-                current_w <=> root.current_w;
-                current_h <=> root.current_h;
-                current_color <=> root.current_color;
-                current_opacity_percent <=> root.current_opacity_percent;
-                current_bar_width_percent <=> root.current_bar_width_percent;
-                selected_index <=> root.selected_index;
-                preview_width: root.preview_width;
-                preview_height: root.preview_height;
-                update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
-                update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
-                update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
-                update_key_color(idx, c) => { root.update_key_color(idx, c); }
-                update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
-                update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
+
+            // 1. KeyPropsPanel：展开时用 preferred-height，折叠时高度为 0
+            Rectangle {
+                clip: true;
+                height: key_props.expanded ? key_props.preferred-height : 24px;
+                animate height { duration: 150ms; }
+                key_props := KeyPropsPanel {
+                    current_x <=> root.current_x;
+                    current_y <=> root.current_y;
+                    current_w <=> root.current_w;
+                    current_h <=> root.current_h;
+                    current_color <=> root.current_color;
+                    current_opacity_percent <=> root.current_opacity_percent;
+                    current_bar_width_percent <=> root.current_bar_width_percent;
+                    selected_index <=> root.selected_index;
+                    preview_width: root.preview_width;
+                    preview_height: root.preview_height;
+                    update_key_position_x(idx, val, cw, ch) => { root.update_key_position_x(idx, val, cw, ch); }
+                    update_key_position_y(idx, val, cw, ch) => { root.update_key_position_y(idx, val, cw, ch); }
+                    update_key_size(idx, w, h) => { root.update_key_size(idx, w, h); }
+                    update_key_color(idx, c) => { root.update_key_color(idx, c); }
+                    update_key_opacity(idx, v) => { root.update_key_opacity(idx, v); }
+                    update_key_bar_width_percent(idx, v) => { root.update_key_bar_width_percent(idx, v); }
+                }
             }
 
             Rectangle { height: 1px; background: #AAAAAA; }
 
-            GlobalSettingsPanel {
-                global_key_color_hex <=> root.global_key_color_hex;
-                global_key_opacity_percent <=> root.global_key_opacity_percent;
-                global_border_color_hex <=> root.global_border_color_hex;
-                front_line_emit <=> root.front_line_emit;
-                flow_direction <=> root.flow_direction;
-                flow_speed <=> root.flow_speed;
-                global_top_boundary <=> root.global_top_boundary;
-                key_margin_width <=> root.key_margin_width;
-                key_color_edited(val) => { root.key_color_edited(val); }
-                key_opacity_edited(val) => { root.key_opacity_edited(val); }
-                border_color_edited(val) => { root.border_color_edited(val); }
-                front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
-                flow_direction_edited(val) => { root.flow_direction_edited(val); }
-                flow_speed_edited(val) => { root.flow_speed_edited(val); }
-                top_boundary_edited(val) => { root.top_boundary_edited(val); }
-                key_margin_edited(val) => { root.key_margin_edited(val); }
+            // 2. GlobalSettingsPanel：同上
+            Rectangle {
+                clip: true;
+                height: global_settings.expanded ? global_settings.preferred-height : 24px;
+                animate height { duration: 150ms; }
+                global_settings := GlobalSettingsPanel {
+                    global_key_color_hex <=> root.global_key_color_hex;
+                    global_key_opacity_percent <=> root.global_key_opacity_percent;
+                    global_border_color_hex <=> root.global_border_color_hex;
+                    front_line_emit <=> root.front_line_emit;
+                    flow_direction <=> root.flow_direction;
+                    flow_speed <=> root.flow_speed;
+                    global_top_boundary <=> root.global_top_boundary;
+                    key_margin_width <=> root.key_margin_width;
+                    key_color_edited(val) => { root.key_color_edited(val); }
+                    key_opacity_edited(val) => { root.key_opacity_edited(val); }
+                    border_color_edited(val) => { root.border_color_edited(val); }
+                    front_line_emit_toggled(val) => { root.front_line_emit_toggled(val); }
+                    flow_direction_edited(val) => { root.flow_direction_edited(val); }
+                    flow_speed_edited(val) => { root.flow_speed_edited(val); }
+                    top_boundary_edited(val) => { root.top_boundary_edited(val); }
+                    key_margin_edited(val) => { root.key_margin_edited(val); }
+                }
             }
         }
     }

@@ -59,7 +59,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Key Color:"; width: 80px; vertical-alignment: center; color: white; }
                 key_col_input := LineEdit {
                     text: root.global_key_color_hex;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.global_key_color_hex = self.text; root.key_color_edited(self.text); }
                 }
             }
@@ -69,7 +69,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Opacity %:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.global_key_opacity_percent; minimum: 1; maximum: 100; step-size: 5;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.global_key_opacity_percent = self.value; root.key_opacity_edited(self.value); }
                 }
             }
@@ -79,7 +79,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Border Color:"; width: 80px; vertical-alignment: center; color: white; }
                 border_col_input := LineEdit {
                     text: root.global_border_color_hex;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.global_border_color_hex = self.text; root.border_color_edited(self.text); }
                 }
             }
@@ -99,7 +99,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Flow Direction:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.flow_direction; minimum: 0; maximum: 3; step-size: 1;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.flow_direction = self.value; root.flow_direction_edited(self.value); }
                 }
             }
@@ -109,7 +109,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Flow Speed:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.flow_speed; minimum: 1; maximum: 50; step-size: 1;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.flow_speed = self.value; root.flow_speed_edited(self.value); }
                 }
             }
@@ -119,7 +119,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Top Boundary:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.global_top_boundary; minimum: 0; maximum: 800; step-size: 10;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.global_top_boundary = self.value; root.top_boundary_edited(self.value); }
                 }
             }
@@ -129,7 +129,7 @@ export component GlobalSettingsPanel {
                 Text { text: "Key Margin:"; width: 80px; vertical-alignment: center; color: white; }
                 SpinBox {
                     value: root.key_margin_width; minimum: 0; maximum: 100; step-size: 1;
-                    horizontal-stretch: 1;
+                    //horizontal-stretch: 1;
                     edited => { root.key_margin_width = self.value; root.key_margin_edited(self.value); }
                 }
             }

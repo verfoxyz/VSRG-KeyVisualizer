@@ -33,8 +33,8 @@
     {
       "rdev_key_name": "SemiColon",
       "display_name": "SemiColon",
-      "x": 160,
-      "y": 17,
+      "x": 240,
+      "y": 0,
       "width": 80,
       "height": 80,
       "color_pressed": "#4A90E2FF",
@@ -43,8 +43,8 @@
     {
       "rdev_key_name": "Quote",
       "display_name": "Quote",
-      "x": 240,
-      "y": 0,
+      "x": 160,
+      "y": 28,
       "width": 80,
       "height": 80,
       "color_pressed": "#4A90E2FF",
